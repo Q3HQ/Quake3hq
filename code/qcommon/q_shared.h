@@ -26,11 +26,11 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 // q_shared.h -- included first by ALL program modules.
 // A user mod should never modify this file
 
-#define Q3_VERSION            "Q3 1.32e"
+#define Q3_VERSION            "Q3 1.32e/Q3HQ"
 #ifndef SVN_VERSION
   #define SVN_VERSION Q3_VERSION
 #endif
-#define CLIENT_WINDOW_TITLE   "Quake 3: Arena"
+#define CLIENT_WINDOW_TITLE   "Quake 3: High Quality"
 #define CONSOLE_WINDOW_TITLE  "Quake 3 Console"
 // 1.32 released 7-10-2002
 

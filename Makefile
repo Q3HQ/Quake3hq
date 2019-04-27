@@ -19,13 +19,13 @@ ifeq ($(COMPILE_PLATFORM),mingw32)
 endif
 
 BUILD_CLIENT     = 1
-BUILD_SERVER     = 1
+BUILD_SERVER     = 0
 
 USE_CURL         = 1
 USE_LOCAL_HEADERS= 0
 
-CNAME            = quake3e
-DNAME            = quake3e.ded
+CNAME            = quake3hq
+DNAME            = quake3hq.ded
 
 #USE_ALSA_STATIC = 1
 #USE_STATIC_GL   = 1
@@ -202,8 +202,8 @@ ifeq ($(PLATFORM),linux)
   OPTIMIZE = -O2 -fvisibility=hidden
 
   ifeq ($(ARCH),x86_64)
-    CNAME    = quake3e.x64
-    DNAME    = quake3e.ded.x64
+    CNAME    = quake3hq.x64
+    DNAME    = quake3hq.ded.x64
   else
   ifeq ($(ARCH),x86)
     OPTIMIZE += -march=i586 -mtune=i686
@@ -306,8 +306,8 @@ ifdef MINGW
 #    -funroll-loops -falign-jumps=2 -falign-functions=2 -fstrength-reduce
 
   ifeq ($(ARCH),x86_64)
-    CNAME    = quake3e.x64
-    DNAME    = quake3e.ded.x64
+    CNAME    = quake3hq.x64
+    DNAME    = quake3hq.ded.x64
     BASE_CFLAGS += -m64
     OPTIMIZE = -O2 -ffast-math -fstrength-reduce
     HAVE_VM_COMPILED = true
