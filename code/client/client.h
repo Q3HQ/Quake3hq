@@ -24,7 +24,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "../qcommon/q_shared.h"
 #include "../qcommon/qcommon.h"
 #include "../qcommon/vm_local.h"
-#include "../renderer/tr_public.h"
+#include "../renderercommon/tr_public.h"
 #include "../ui/ui_public.h"
 #include "keys.h"
 #include "snd_public.h"
@@ -196,8 +196,8 @@ typedef struct {
 
 	// file transfer from server
 	fileHandle_t download;
-	char		downloadTempName[MAX_OSPATH];
 	char		downloadName[MAX_OSPATH];
+	char		downloadTempName[MAX_OSPATH + 4]; // downloadName + ".tmp"
 	int			sv_allowDownload;
 	char		sv_dlURL[MAX_CVAR_VALUE_STRING];
 	int			downloadNumber;
@@ -236,6 +236,7 @@ typedef struct {
 
 	float	aviVideoFrameRemainder;
 	float	aviSoundFrameRemainder;
+	int		aviFrameEndTime;
 	char	videoName[MAX_QPATH];
 	int		videoIndex;
 
@@ -365,7 +366,7 @@ extern	qboolean	cl_oldGameSet;
 extern		download_t	download;
 qboolean	Com_DL_Perform( download_t *dl );
 void		Com_DL_Cleanup( download_t *dl );
-qboolean	Com_DL_Begin( download_t *dl, const char *localName, const char *remoteURL, qboolean headerCheck, qboolean autoDownload );
+qboolean	Com_DL_Begin( download_t *dl, const char *localName, const char *remoteURL, qboolean autoDownload );
 qboolean	Com_DL_InProgress( const download_t *dl );
 qboolean	Com_DL_ValidFileName( const char *fileName );
 qboolean	CL_Download( const char *cmd, const char *pakname, qboolean autoDownload );
@@ -390,7 +391,7 @@ extern	cvar_t	*cl_autoNudge;
 extern	cvar_t	*cl_timeNudge;
 extern	cvar_t	*cl_showTimeDelta;
 
-extern	cvar_t	*cl_timedemo;
+extern	cvar_t	*com_timedemo;
 extern	cvar_t	*cl_aviFrameRate;
 extern	cvar_t	*cl_aviMotionJpeg;
 extern	cvar_t	*cl_aviPipeFormat;
@@ -411,6 +412,10 @@ extern	cvar_t	*cl_autoRecordDemo;
 
 extern	cvar_t	*com_maxfps;
 
+extern	cvar_t	*vid_xpos;
+extern	cvar_t	*vid_ypos;
+extern	cvar_t	*r_noborder;
+
 extern	cvar_t	*r_allowSoftwareGL;
 extern	cvar_t	*r_swapInterval;
 extern	cvar_t	*r_glDriver;
@@ -423,9 +428,9 @@ extern	cvar_t	*r_customwidth;
 extern	cvar_t	*r_customheight;
 extern	cvar_t	*r_customPixelAspect;
 extern	cvar_t	*r_colorbits;
-extern	cvar_t	*r_stencilbits;
-extern	cvar_t	*r_depthbits;
-extern	cvar_t	*r_drawBuffer;
+extern	cvar_t	*cl_stencilbits;
+extern	cvar_t	*cl_depthbits;
+extern	cvar_t	*cl_drawBuffer;
 
 //=================================================
 
@@ -583,6 +588,13 @@ void CL_WriteAVIAudioFrame( const byte *pcmBuffer, int size );
 qboolean CL_CloseAVI( void );
 qboolean CL_VideoRecording( void );
 
+//
+// cl_jpeg.c
+//
+size_t	CL_SaveJPGToBuffer( byte *buffer, size_t bufSize, int quality, int image_width, int image_height, byte *image_buffer, int padding );
+void	CL_SaveJPG( const char *filename, int quality, int image_width, int image_height, byte *image_buffer, int padding );
+void	CL_LoadJPG( const char *filename, unsigned char **pic, int *width, int *height );
+
 // platform-specific
 void	GLimp_Init( glconfig_t *config );
 void	GLimp_Shutdown( qboolean unloadDLL );
@@ -592,3 +604,11 @@ void	GLimp_InitGamma( glconfig_t *config );
 void	GLimp_SetGamma( unsigned char red[256], unsigned char green[256], unsigned char blue[256] );
 
 void	*GL_GetProcAddress( const char *name );
+
+// Vulkan
+#ifdef USE_VULKAN_API
+void	VKimp_Init( glconfig_t *config );
+void	VKimp_Shutdown( qboolean unloadDLL );
+void	*VK_GetInstanceProcAddr( VkInstance instance, const char *name );
+qboolean VK_CreateSurface( VkInstance instance, VkSurfaceKHR* pSurface );
+#endif

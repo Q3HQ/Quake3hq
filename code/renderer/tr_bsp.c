@@ -97,7 +97,7 @@ static void HSVtoRGB( float h, float s, float v, float rgb[3] )
 R_ColorShiftLightingBytes
 ===============
 */
-static void R_ColorShiftLightingBytes( const byte in[4], byte out[4] ) {
+void R_ColorShiftLightingBytes( const byte in[4], byte out[4] ) {
 	int		shift, r, g, b;
 
 	// shift the color data based on overbright range
@@ -273,30 +273,21 @@ static float R_ProcessLightmap( byte *image, const byte *buf_p, float maxIntensi
 }
 
 
-static unsigned int log2pad( unsigned int v )
-{
-	unsigned int x;
-	for ( x = 1 ; x < v ; x <<= 1 )
-		;
-	return x;
-}
-
-
 static int SetLightmapParams( int numLightmaps, int maxTextureSize )
 {
-	lightmapWidth = log2pad( LIGHTMAP_LEN );
-	lightmapHeight = log2pad( LIGHTMAP_LEN );
+	lightmapWidth = log2pad( LIGHTMAP_LEN, 1 );
+	lightmapHeight = log2pad( LIGHTMAP_LEN, 1 );
 
 	lightmapCountX = 1;
 	lightmapCountY = 1;
 
 	while ( lightmapWidth < maxTextureSize && lightmapCountX * lightmapCountY < numLightmaps )
 	{
-		lightmapWidth = log2pad( lightmapWidth + LIGHTMAP_LEN );
+		lightmapWidth = log2pad( lightmapWidth + LIGHTMAP_LEN, 1 );
 		lightmapCountX = lightmapWidth / LIGHTMAP_LEN;
 		if ( lightmapCountX * lightmapCountY >= numLightmaps )
 			break;
-		lightmapHeight = log2pad( lightmapHeight + LIGHTMAP_LEN );
+		lightmapHeight = log2pad( lightmapHeight + LIGHTMAP_LEN, 1 );
 		lightmapCountY = lightmapHeight / LIGHTMAP_LEN;
 	}
 
@@ -349,13 +340,9 @@ static void R_LoadMergedLightmaps( const lump_t *l, byte *image )
 
 	// create all the lightmaps
 	tr.numLightmaps = len / (LIGHTMAP_SIZE * LIGHTMAP_SIZE * 3);
-	
-	// if we are in r_vertexLight mode, we don't need the lightmaps at all
-	if ( ( r_vertexLight->integer && tr.vertexLightingAllowed ) || glConfig.hardwareType == GLHW_PERMEDIA2 )
-		return;
 
 	// we are about to upload textures
-	R_IssuePendingRenderCommands();
+	//R_IssuePendingRenderCommands();
 
 	tr.numLightmaps = SetLightmapParams( tr.numLightmaps, glConfig.maxTextureSize );
 
@@ -363,8 +350,8 @@ static void R_LoadMergedLightmaps( const lump_t *l, byte *image )
 
 	for ( offs = 0, i = 0 ; i < tr.numLightmaps; i++ ) {
 
-		tr.lightmaps[ i ] = R_CreateImage( va( "*mergedLightmap%d", i ), NULL,
-			lightmapWidth, lightmapHeight, IMGTYPE_COLORALPHA, lightmapFlags | IMGFLAG_CLAMPTOBORDER, 0 );
+		tr.lightmaps[ i ] = R_CreateImage( va( "*mergedLightmap%d", i ), NULL, NULL,
+			lightmapWidth, lightmapHeight, lightmapFlags | IMGFLAG_CLAMPTOBORDER );
 
 		for ( y = 0; y < lightmapCountY; y++ ) {
 			if ( offs >= len )
@@ -376,7 +363,7 @@ static void R_LoadMergedLightmaps( const lump_t *l, byte *image )
 
 				R_ProcessLightmap( image, buf + offs, maxIntensity );
 
-				R_UploadSubImage( (unsigned*) image, x * LIGHTMAP_LEN, y * LIGHTMAP_LEN,
+				R_UploadSubImage( image, x * LIGHTMAP_LEN, y * LIGHTMAP_LEN,
 					LIGHTMAP_LEN, LIGHTMAP_LEN, tr.lightmaps[ i ] );
 
 				offs += LIGHTMAP_SIZE * LIGHTMAP_SIZE * 3;
@@ -403,12 +390,18 @@ static void R_LoadLightmaps( const lump_t *l ) {
 	int			i;
 	float		maxIntensity = 0;
 
+	tr.numLightmaps = 0;
 	tr.lightmapScale[0] = tr.lightmapScale[1] = 1.0;
 	lightmapWidth = LIGHTMAP_SIZE;
 	lightmapHeight = LIGHTMAP_SIZE;
 	lightmapCountX = 1;
 	lightmapCountY = 1;
 	lightmapMod = 1;
+
+	// if we are in r_vertexLight mode, we don't need the lightmaps at all
+	if ( r_vertexLight->integer || glConfig.hardwareType == GLHW_PERMEDIA2 ) {
+		return;
+	}
 
 	if ( r_mergeLightmaps->integer ) {
 		R_LoadMergedLightmaps( l, image ); // reuse stack space
@@ -429,19 +422,14 @@ static void R_LoadLightmaps( const lump_t *l ) {
 		tr.numLightmaps++;
 	}
 
-	// if we are in r_vertexLight mode, we don't need the lightmaps at all
-	if ( ( r_vertexLight->integer && tr.vertexLightingAllowed ) || glConfig.hardwareType == GLHW_PERMEDIA2 ) {
-		return;
-	}
-
 	// we are about to upload textures
-	R_IssuePendingRenderCommands();
+	//R_IssuePendingRenderCommands();
 
 	tr.lightmaps = ri.Hunk_Alloc( tr.numLightmaps * sizeof(image_t *), h_low );
 	for ( i = 0 ; i < tr.numLightmaps ; i++ ) {
 		maxIntensity = R_ProcessLightmap( image, buf + i * LIGHTMAP_SIZE * LIGHTMAP_SIZE * 3, maxIntensity );
-		tr.lightmaps[i] = R_CreateImage( va( "*lightmap%d", i ), image, LIGHTMAP_SIZE, LIGHTMAP_SIZE,
-			IMGTYPE_COLORALPHA, lightmapFlags | IMGFLAG_CLAMPTOEDGE, 0 );
+		tr.lightmaps[i] = R_CreateImage( va( "*lightmap%d", i ), NULL, image, LIGHTMAP_SIZE, LIGHTMAP_SIZE,
+			lightmapFlags | IMGFLAG_CLAMPTOEDGE );
 	}
 
 	//if ( r_lightmap->integer == 2 )	{
@@ -476,7 +464,7 @@ static void R_LoadVisibility( const lump_t *l ) {
 	s_worldData.novis = ri.Hunk_Alloc( len, h_low );
 	Com_Memset( s_worldData.novis, 0xff, len );
 
-    len = l->filelen;
+	len = l->filelen;
 	if ( !len ) {
 		return;
 	}
@@ -539,7 +527,7 @@ static void GenerateNormals( srfSurfaceFace_t *face )
 {
 	vec3_t ba, ca, cross;
 	float *v1, *v2, *v3, *n1, *n2, *n3;
-	int i, *indices;
+	int i, *indices, i0, i1, i2;
 
 	indices = ((int *)((byte *)face + face->ofsIndices));
 
@@ -547,9 +535,14 @@ static void GenerateNormals( srfSurfaceFace_t *face )
 	face->normals = ri.Hunk_Alloc( face->numPoints * sizeof( tess.normal[0] ), h_low );
 
 	for ( i = 0; i < face->numIndices; i += 3 ) {
-		v1 = face->points[indices[i+0]];
-		v2 = face->points[indices[i+1]];
-		v3 = face->points[indices[i+2]];
+		i0 = indices[i+0];
+		i1 = indices[i+1];
+		i2 = indices[i+2];
+		if ( i0 >= face->numPoints || i1 >= face->numPoints || i2 >= face->numPoints )
+			continue;
+		v1 = face->points[i0];
+		v2 = face->points[i1];
+		v3 = face->points[i2];
 		VectorSubtract( v3, v1, ca );
 		VectorSubtract( v2, v1, ba );
 		CrossProduct( ca, ba, cross );
@@ -629,7 +622,7 @@ static void ParseFace( const dsurface_t *ds, const drawVert_t *verts, msurface_t
 			cv->points[i][3+j] = LittleFloat( verts[i].st[j] );
 			cv->points[i][5+j] = LittleFloat( verts[i].lightmap[j] );
 		}
-		R_ColorShiftLightingBytes( verts[i].color, (byte *)&cv->points[i][7] );
+		R_ColorShiftLightingBytes( verts[i].color.rgba, (byte *)&cv->points[i][7] );
 		if ( lightmapNum >= 0 && r_mergeLightmaps->integer ) {
 			// adjust lightmap coords
 			cv->points[i][5] = cv->points[i][5] * tr.lightmapScale[0] + lightmapX;
@@ -728,7 +721,7 @@ static void ParseMesh( const dsurface_t *ds, const drawVert_t *verts, msurface_t
 			points[i].st[j] = LittleFloat( verts[i].st[j] );
 			points[i].lightmap[j] = LittleFloat( verts[i].lightmap[j] );
 		}
-		R_ColorShiftLightingBytes( verts[i].color, points[i].color );
+		R_ColorShiftLightingBytes( verts[i].color.rgba, points[i].color.rgba );
 		if ( lightmapNum >= 0 && r_mergeLightmaps->integer ) {
 			// adjust lightmap coords
 			points[i].lightmap[0] = points[i].lightmap[0] * tr.lightmapScale[0] + lightmapX;
@@ -812,7 +805,7 @@ static void ParseTriSurf( const dsurface_t *ds, const drawVert_t *verts, msurfac
 			tri->verts[i].lightmap[j] = LittleFloat( verts[i].lightmap[j] );
 		}
 
-		R_ColorShiftLightingBytes( verts[i].color, tri->verts[i].color );
+		R_ColorShiftLightingBytes( verts[i].color.rgba, tri->verts[i].color.rgba );
 		if ( lightmapNum >= 0 && r_mergeLightmaps->integer ) {
 			// adjust lightmap coords
 			tri->verts[i].lightmap[0] = tri->verts[i].lightmap[0] * tr.lightmapScale[0] + lightmapX;
@@ -1585,18 +1578,18 @@ static void R_LoadSurfaces( const lump_t *surfs, const lump_t *verts, const lump
 
 	in = (void *)(fileBase + surfs->fileofs);
 	if (surfs->filelen % sizeof(*in))
-		ri.Error (ERR_DROP, "LoadMap: funny lump size in %s",s_worldData.name);
+		ri.Error( ERR_DROP, "%s(): funny lump size in %s", __func__, s_worldData.name );
 	count = surfs->filelen / sizeof(*in);
 
 	dv = (void *)(fileBase + verts->fileofs);
 	if (verts->filelen % sizeof(*dv))
-		ri.Error (ERR_DROP, "LoadMap: funny lump size in %s",s_worldData.name);
+		ri.Error( ERR_DROP, "%s(): funny lump size in %s", __func__, s_worldData.name );
 
 	indexes = (void *)(fileBase + indexLump->fileofs);
 	if ( indexLump->filelen % sizeof(*indexes))
-		ri.Error (ERR_DROP, "LoadMap: funny lump size in %s",s_worldData.name);
+		ri.Error( ERR_DROP, "%s(): funny lump size in %s", __func__, s_worldData.name );
 
-	out = ri.Hunk_Alloc ( count * sizeof(*out), h_low );	
+	out = ri.Hunk_Alloc( count * sizeof(*out), h_low );
 
 	s_worldData.surfaces = out;
 	s_worldData.numsurfaces = count;
@@ -1620,7 +1613,7 @@ static void R_LoadSurfaces( const lump_t *surfs, const lump_t *verts, const lump
 			numFlares++;
 			break;
 		default:
-			ri.Error( ERR_DROP, "Bad surfaceType" );
+			ri.Error( ERR_DROP, "Bad surfaceType %i", LittleLong( in->surfaceType ) );
 		}
 	}
 
@@ -1651,7 +1644,7 @@ static void R_LoadSubmodels( const lump_t *l ) {
 
 	in = (void *)(fileBase + l->fileofs);
 	if (l->filelen % sizeof(*in))
-		ri.Error (ERR_DROP, "LoadMap: funny lump size in %s",s_worldData.name);
+		ri.Error( ERR_DROP, "%s(): funny lump size in %s", __func__, s_worldData.name );
 	count = l->filelen / sizeof(*in);
 
 	s_worldData.bmodels = out = ri.Hunk_Alloc( count * sizeof(*out), h_low );
@@ -1662,7 +1655,7 @@ static void R_LoadSubmodels( const lump_t *l ) {
 		model = R_AllocModel();
 
 		if ( model == NULL ) {
-			ri.Error(ERR_DROP, "R_LoadSubmodels: R_AllocModel() failed");
+			ri.Error( ERR_DROP, "R_LoadSubmodels: R_AllocModel() failed" );
 		}
 
 		model->type = MOD_BRUSH;
@@ -1713,7 +1706,7 @@ static void R_LoadNodesAndLeafs( const lump_t *nodeLump, const lump_t *leafLump 
 	in = (void *)(fileBase + nodeLump->fileofs);
 	if (nodeLump->filelen % sizeof(dnode_t) ||
 		leafLump->filelen % sizeof(dleaf_t) ) {
-		ri.Error (ERR_DROP, "LoadMap: funny lump size in %s",s_worldData.name);
+		ri.Error( ERR_DROP, "%s(): funny lump size in %s", __func__, s_worldData.name );
 	}
 	numNodes = nodeLump->filelen / sizeof(dnode_t);
 	numLeafs = leafLump->filelen / sizeof(dleaf_t);
@@ -1807,7 +1800,7 @@ static void R_LoadShaders( const lump_t *l ) {
 	
 	in = (void *)(fileBase + l->fileofs);
 	if (l->filelen % sizeof(*in))
-		ri.Error (ERR_DROP, "LoadMap: funny lump size in %s",s_worldData.name);
+		ri.Error( ERR_DROP, "%s(): funny lump size in %s", __func__, s_worldData.name );
 	count = l->filelen / sizeof(*in);
 	out = ri.Hunk_Alloc ( count*sizeof(*out), h_low );
 
@@ -1838,9 +1831,9 @@ static void R_LoadMarksurfaces( const lump_t *l )
 	
 	in = (void *)(fileBase + l->fileofs);
 	if (l->filelen % sizeof(*in))
-		ri.Error (ERR_DROP, "LoadMap: funny lump size in %s",s_worldData.name);
+		ri.Error( ERR_DROP, "%s(): funny lump size in %s", __func__, s_worldData.name );
 	count = l->filelen / sizeof(*in);
-	out = ri.Hunk_Alloc ( count*sizeof(*out), h_low);	
+	out = ri.Hunk_Alloc ( count*sizeof(*out), h_low);
 
 	s_worldData.marksurfaces = out;
 	s_worldData.nummarksurfaces = count;
@@ -1864,13 +1857,13 @@ static	void R_LoadPlanes( lump_t *l ) {
 	dplane_t 	*in;
 	int			count;
 	int			bits;
-	
+
 	in = (void *)(fileBase + l->fileofs);
 	if (l->filelen % sizeof(*in))
-		ri.Error (ERR_DROP, "LoadMap: funny lump size in %s",s_worldData.name);
+		ri.Error( ERR_DROP, "%s(): funny lump size in %s", __func__, s_worldData.name );
 	count = l->filelen / sizeof(*in);
-	out = ri.Hunk_Alloc ( count*2*sizeof(*out), h_low);	
-	
+	out = ri.Hunk_Alloc( count*2*sizeof(*out), h_low );
+
 	s_worldData.planes = out;
 	s_worldData.numplanes = count;
 
@@ -1907,16 +1900,17 @@ static void R_LoadFogs( const lump_t *l, const lump_t *brushesLump, const lump_t
 	shader_t	*shader;
 	float		d;
 	int			firstSide;
+	vec3_t		fogColor;
 
 	fogs = (void *)(fileBase + l->fileofs);
 	if (l->filelen % sizeof(*fogs)) {
-		ri.Error (ERR_DROP, "LoadMap: funny lump size in %s",s_worldData.name);
+		ri.Error( ERR_DROP, "%s(): funny lump size in %s", __func__, s_worldData.name );
 	}
 	count = l->filelen / sizeof(*fogs);
 
 	// create fog structures for them
 	s_worldData.numfogs = count + 1;
-	s_worldData.fogs = ri.Hunk_Alloc ( s_worldData.numfogs*sizeof(*out), h_low);
+	s_worldData.fogs = ri.Hunk_Alloc( s_worldData.numfogs*sizeof(*out), h_low);
 	out = s_worldData.fogs + 1;
 
 	if ( !count ) {
@@ -1925,13 +1919,13 @@ static void R_LoadFogs( const lump_t *l, const lump_t *brushesLump, const lump_t
 
 	brushes = (void *)(fileBase + brushesLump->fileofs);
 	if (brushesLump->filelen % sizeof(*brushes)) {
-		ri.Error (ERR_DROP, "LoadMap: funny lump size in %s",s_worldData.name);
+		ri.Error( ERR_DROP, "%s(): funny lump size in %s", __func__, s_worldData.name );
 	}
 	brushesCount = brushesLump->filelen / sizeof(*brushes);
 
 	sides = (void *)(fileBase + sidesLump->fileofs);
 	if (sidesLump->filelen % sizeof(*sides)) {
-		ri.Error (ERR_DROP, "LoadMap: funny lump size in %s",s_worldData.name);
+		ri.Error( ERR_DROP, "%s(): funny lump size in %s", __func__, s_worldData.name );
 	}
 	sidesCount = sidesLump->filelen / sizeof(*sides);
 
@@ -1945,7 +1939,7 @@ static void R_LoadFogs( const lump_t *l, const lump_t *brushesLump, const lump_t
 
 		firstSide = LittleLong( brush->firstSide );
 
-			if ( (unsigned)firstSide > sidesCount - 6 ) {
+		if ( (unsigned)firstSide > sidesCount - 6 ) {
 			ri.Error( ERR_DROP, "fog brush sideNumber out of range" );
 		}
 
@@ -1976,15 +1970,26 @@ static void R_LoadFogs( const lump_t *l, const lump_t *brushesLump, const lump_t
 
 		// get information from the shader for fog parameters
 		shader = R_FindShader( fogs->shader, LIGHTMAP_NONE, qtrue );
+	
+		VectorCopy( shader->fogParms.color, fogColor );
+
+		if ( r_mapGreyScale->value > 0 ) {
+			float luminance;
+			luminance = LUMA( fogColor[0], fogColor[1], fogColor[2] );
+			fogColor[0] = LERP( fogColor[0], luminance, r_mapGreyScale->value );
+			fogColor[1] = LERP( fogColor[1], luminance, r_mapGreyScale->value );
+			fogColor[2] = LERP( fogColor[2], luminance, r_mapGreyScale->value );
+		}
 
 		out->parms = shader->fogParms;
 
-		out->colorInt = ColorBytes4 ( shader->fogParms.color[0] * tr.identityLight,
-			shader->fogParms.color[1] * tr.identityLight,
-			shader->fogParms.color[2] * tr.identityLight, 1.0 );
+		out->colorInt.rgba[0] = ( fogColor[0] * tr.identityLight ) * 255.0f;
+		out->colorInt.rgba[1] = ( fogColor[1] * tr.identityLight ) * 255.0f;
+		out->colorInt.rgba[2] = ( fogColor[2] * tr.identityLight ) * 255.0f;
+		out->colorInt.rgba[3] = 255;
 
 		for ( n = 0; n < 4; n++ )
-			out->color[ n ] = ( ( out->colorInt >> (n*8) ) & 255 ) / 255.0f;
+			out->color[ n ] = (float) out->colorInt.rgba[ n ] / 255.0f;
 
 		d = shader->fogParms.depthForOpaque < 1 ? 1 : shader->fogParms.depthForOpaque;
 		out->tcScale = 1.0f / ( d * 8 );
@@ -2116,29 +2121,29 @@ static void R_LoadEntities( const lump_t *l ) {
 			}
 			*s++ = '\0';
 			if ( r_vertexLight->integer && tr.vertexLightingAllowed ) {
-				R_RemapShader(value, s, "0");
+				RE_RemapShader(value, s, "0");
 			}
 			continue;
 		}
 		// check for remapping of shaders
 		s = "remapshader";
-		if (!Q_strncmp(keyname, s, strlen(s)) ) {
+		if (!Q_strncmp(keyname, s, (int)strlen(s)) ) {
 			s = strchr(value, ';');
 			if (!s) {
 				ri.Printf( PRINT_WARNING, "WARNING: no semi colon in shaderremap '%s'\n", value );
 				break;
 			}
 			*s++ = '\0';
-			R_RemapShader(value, s, "0");
+			RE_RemapShader(value, s, "0");
 			continue;
 		}
 		// check for a different grid size
 		if (!Q_stricmp(keyname, "gridsize")) {
 			//sscanf(value, "%f %f %f", &w->lightGridSize[0], &w->lightGridSize[1], &w->lightGridSize[2] );
 			Com_Split( value, v, 3, ' ' );
-			w->lightGridSize[0] = atof( v[0] );
-			w->lightGridSize[1] = atof( v[1] );
-			w->lightGridSize[2] = atof( v[2] );
+			w->lightGridSize[0] = Q_atof( v[0] );
+			w->lightGridSize[1] = Q_atof( v[1] );
+			w->lightGridSize[2] = Q_atof( v[2] );
 			continue;
 		}
 	}
@@ -2147,10 +2152,10 @@ static void R_LoadEntities( const lump_t *l ) {
 
 /*
 =================
-R_GetEntityToken
+RE_GetEntityToken
 =================
 */
-qboolean R_GetEntityToken( char *buffer, int size ) {
+qboolean RE_GetEntityToken( char *buffer, int size ) {
 	const char	*s;
 
 	s = COM_Parse( &s_worldData.entityParsePoint );
@@ -2173,6 +2178,7 @@ Called directly from cgame
 */
 void RE_LoadWorldMap( const char *name ) {
 	int			i;
+	int32_t		size;
 	dheader_t	*header;
 	union {
 		byte *b;
@@ -2195,9 +2201,12 @@ void RE_LoadWorldMap( const char *name ) {
 	tr.worldMapLoaded = qtrue;
 
 	// load it
-	ri.FS_ReadFile( name, &buffer.v );
+	size = ri.FS_ReadFile( name, &buffer.v );
 	if ( !buffer.b ) {
-		ri.Error (ERR_DROP, "RE_LoadWorldMap: %s not found", name);
+		ri.Error( ERR_DROP, "%s: couldn't load %s", __func__, name );
+	}
+	if ( size < sizeof( dheader_t ) ) {
+		ri.Error( ERR_DROP, "%s: %s has truncated header", __func__, name );
 	}
 
 	tr.mapLoading = qtrue;
@@ -2218,15 +2227,21 @@ void RE_LoadWorldMap( const char *name ) {
 	header = (dheader_t *)buffer.b;
 	fileBase = (byte *)header;
 
-	i = LittleLong (header->version);
-	if ( i != BSP_VERSION ) {
-		ri.Error (ERR_DROP, "RE_LoadWorldMap: %s has wrong version number (%i should be %i)", 
-			name, i, BSP_VERSION);
+	// swap all the lumps
+	for ( i = 0; i < sizeof( dheader_t ) / 4; i++ ) {
+		( (int32_t *)header )[i] = LittleLong( ( (int32_t *)header )[i] );
 	}
 
-	// swap all the lumps
-	for (i=0 ; i<sizeof(dheader_t)/4 ; i++) {
-		((int *)header)[i] = LittleLong ( ((int *)header)[i]);
+	if ( header->version != BSP_VERSION ) {
+		ri.Error( ERR_DROP, "%s: %s has wrong version number (%i should be %i)", __func__, name, header->version, BSP_VERSION );
+	}
+
+	for ( i = 0; i < HEADER_LUMPS; i++ ) {
+		int32_t ofs = header->lumps[i].fileofs;
+		int32_t len = header->lumps[i].filelen;
+		if ( (uint32_t)ofs > MAX_QINT || (uint32_t)len > MAX_QINT || ofs + len > size || ofs + len < 0 ) {
+			ri.Error( ERR_DROP, "%s: %s has wrong lump[%i] size/offset", __func__, name, i );
+		}
 	}
 
 	// load into heap

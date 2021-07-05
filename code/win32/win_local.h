@@ -23,6 +23,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #define RAW_INPUT
 
+#define FAST_MODE_SWITCH
+
 #ifdef RAW_INPUT
 
 #ifndef HID_USAGE_GENERIC_MOUSE
@@ -81,18 +83,18 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #define MK_XBUTTON2         0x0040
 #endif
 
-#define	WINDOW_STYLE_NORMAL          (WS_VISIBLE|WS_CLIPCHILDREN|WS_SYSMENU|WS_CAPTION|WS_MINIMIZEBOX|WS_OVERLAPPED|WS_BORDER)
-#define	WINDOW_STYLE_NORMAL_NB       (WS_VISIBLE|WS_POPUP)
+#define	WINDOW_STYLE_NORMAL          (WS_VISIBLE|WS_CLIPCHILDREN|WS_CLIPSIBLINGS|WS_SYSMENU|WS_CAPTION|WS_MINIMIZEBOX|WS_BORDER)
+#define	WINDOW_STYLE_NORMAL_NB       (WS_VISIBLE|WS_CLIPCHILDREN|WS_CLIPSIBLINGS|WS_POPUP)
 #define	WINDOW_ESTYLE_NORMAL         (0)
-#define	WINDOW_STYLE_FULLSCREEN      (WS_VISIBLE|WS_CLIPCHILDREN|WS_POPUP)
-#define	WINDOW_ESTYLE_FULLSCREEN     (WS_EX_TOPMOST)
-#define	WINDOW_STYLE_FULLSCREEN_MIN  (WS_VISIBLE|WS_CLIPCHILDREN)
+#define	WINDOW_STYLE_FULLSCREEN      (WS_VISIBLE|WS_CLIPCHILDREN|WS_CLIPSIBLINGS|WS_POPUP)
+#define	WINDOW_ESTYLE_FULLSCREEN     (0)
+#define	WINDOW_STYLE_FULLSCREEN_MIN  (WS_VISIBLE|WS_CLIPCHILDREN|WS_CLIPSIBLINGS)
 #define	WINDOW_ESTYLE_FULLSCREEN_MIN (0)
 
 #define T TEXT
 #ifdef UNICODE
 LPWSTR AtoW( const char *s );
-const char *WtoA( const LPWSTR s ); 
+const char *WtoA( const LPWSTR s );
 #else
 #define AtoW(S) (S)
 #define WtoA(S) (S)
@@ -119,6 +121,7 @@ void	UpdateMonitorInfo( const RECT *target );
 
 // window procedure
 LRESULT WINAPI MainWndProc( HWND hWnd, UINT uMsg, WPARAM  wParam, LPARAM  lParam );
+void HandleConsoleEvents( void );
 
 void Conbuf_AppendText( const char *msg );
 void Conbuf_BeginPrint( void );
@@ -142,7 +145,7 @@ typedef struct
 	RECT			winRect;
 	qboolean		winRectValid;
 
-	int	raw_mx;
+	int raw_mx;
 	int raw_my;
 
 	POINT mouse;
@@ -151,8 +154,10 @@ typedef struct
 
 extern WinVars_t	g_wv;
 
-void WIN_DisableHook( void  );
-void WIN_EnableHook( void  );
+void WIN_DisableHook( void );
+void WIN_EnableHook( void );
 
 void WIN_DisableAltTab( void );
 void WIN_EnableAltTab( void );
+
+void WIN_Minimize( void );

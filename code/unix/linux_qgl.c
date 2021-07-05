@@ -35,7 +35,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "../qcommon/q_shared.h"
 #include "../qcommon/qcommon.h"
 #include "../renderer/qgl.h"
-#include "../renderer/tr_types.h"
+#include "../renderercommon/tr_types.h"
 #include "unix_glw.h"
 
 #include <dlfcn.h>
@@ -65,12 +65,12 @@ void QGL_Shutdown( qboolean unloadDLL )
 		// suffice to say I don't see anything in the Q3 code that could cause it.
 		// I suspect it's an Nvidia driver bug, but without the source or means to
 		// debug I obviously can't prove (or disprove) this. Interestingly (though
-		// perhaps not suprisingly), Enemy Territory and Doom 3 both exhibit the
+		// perhaps not surprisingly), Enemy Territory and Doom 3 both exhibit the
 		// same problem.
 		//
 		// After many, many reboots and prodding here and there, it seems that a
 		// placing a short delay before libGL is unloaded works around the problem.
-		// This delay is changable via the r_GLlibCoolDownMsec cvar (nice name
+		// This delay is changeable via the r_GLlibCoolDownMsec cvar (nice name
 		// huh?), and it defaults to 0. For me, 500 seems to work.
 		//if( r_GLlibCoolDownMsec->integer )
 		//	usleep( r_GLlibCoolDownMsec->integer * 1000 );
@@ -102,18 +102,18 @@ void *GL_GetProcAddress( const char *symbol )
 	return sym;
 }
 
-char *do_dlerror( void );
+//char *do_dlerror( void );
 
 
 /*
 ** QGL_Init
 **
-** This is responsible for binding our qgl function pointers to 
-** the appropriate GL stuff.  In Windows this means doing a 
+** This is responsible for binding our qgl function pointers to
+** the appropriate GL stuff.  In Windows this means doing a
 ** LoadLibrary and a bunch of calls to GetProcAddress.  On other
 ** operating systems we need to do the right thing, whatever that
 ** might be.
-** 
+**
 */
 qboolean QGL_Init( const char *dllname )
 {
@@ -152,7 +152,7 @@ qboolean QGL_Init( const char *dllname )
 #endif
 			{
 				Com_Printf( "failed\n" );
-				Com_Printf( "QGL_Init: Can't load %s from /etc/ld.so.conf: %s\n", dllname, do_dlerror() );
+				//Com_Printf( "QGL_Init: Can't load %s from /etc/ld.so.conf: %s\n", dllname, do_dlerror() );
 				return qfalse;
 			}
 		}

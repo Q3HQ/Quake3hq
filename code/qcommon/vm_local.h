@@ -38,6 +38,12 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 // for some buggy mods
 #define	PROGRAM_STACK_EXTRA	(32*1024)
 
+// flags for vm_rtChecks cvar
+#define VM_RTCHECK_PSTACK  1
+#define VM_RTCHECK_OPSTACK 2
+#define VM_RTCHECK_JUMP    4
+#define VM_RTCHECK_DATA    8
+
 typedef enum {
 	OP_UNDEF,
 
@@ -128,11 +134,15 @@ typedef enum {
 } opcode_t;
 
 typedef struct {
-	int		value;	// 32
-	byte	op;		// 8
-	byte	opStack;	// 8
-	unsigned jused:1;
-	unsigned swtch:1;
+	int32_t	value;     // 32
+	byte	op;        // 8
+	byte	opStack;   // 8
+	unsigned jused:1;  // this instruction is a jump target
+	unsigned swtch:1;  // indirect jump
+	unsigned safe:1;   // non-masked OP_STORE*
+	unsigned endp:1;   // for last OP_LEAVE instruction
+	unsigned fpu:1;    // load into FPU register
+	unsigned njump:1;  // near jump
 } instruction_t;
 
 typedef struct vmSymbol_s {
@@ -151,16 +161,16 @@ typedef union vmFunc_u {
 
 struct vm_s {
 
-	unsigned int programStack;		// the vm may be recursively entered
 	syscall_t	systemCall;
 	byte		*dataBase;
 	int			*opStack;			// pointer to local function stack
+	int			*opStackTop;
 
-	int			instructionCount;
-	intptr_t	*instructionPointers;
+	int			programStack;		// the vm may be recursively entered
+	int			stackBottom;		// if programStack < stackBottom, error
 
 	//------------------------------------
-   
+
 	const char	*name;
 	vmIndex_t	index;
 
@@ -179,13 +189,13 @@ struct vm_s {
 	unsigned int codeSize;			// code + jump targets, needed for proper munmap()
 	unsigned int codeLength;		// just for information
 
+	int			instructionCount;
+	intptr_t	*instructionPointers;
+
 	unsigned int dataMask;
 	unsigned int dataLength;			// data segment length
 	unsigned int exactDataLength;	// from qvm header
 	unsigned int dataAlloc;			// actually allocated
-
-	unsigned int stackBottom;		// if programStack < stackBottom, error
-	int			*opStackTop;
 
 	int			numSymbols;
 	vmSymbol_t	*symbols;
@@ -204,8 +214,6 @@ struct vm_s {
 	int			privateFlag;
 };
 
-extern	int		vm_debugLevel;
-
 qboolean VM_Compile( vm_t *vm, vmHeader_t *header );
 int	VM_CallCompiled( vm_t *vm, int nargs, int *args );
 
@@ -218,23 +226,24 @@ const char *VM_ValueToSymbol( vm_t *vm, int value );
 void VM_LogSyscalls( int *args );
 
 const char *VM_LoadInstructions( const byte *code_pos, int codeLength, int instructionCount, instruction_t *buf );
-const char *VM_CheckInstructions( instruction_t *buf, int instructionCount, 
-								 const byte *jumpTableTargets, 
-								 int numJumpTableTargets, 
+const char *VM_CheckInstructions( instruction_t *buf, int instructionCount,
+								 const byte *jumpTableTargets,
+								 int numJumpTableTargets,
 								 int dataLength );
 
 void VM_ReplaceInstructions( vm_t *vm, instruction_t *buf );
 
 #define JUMP	(1<<0)
+#define FPU		(1<<1)
 
-typedef struct opcode_info_s 
+typedef struct opcode_info_s
 {
-	int   size; 
-	int	  stack;
-	int   nargs;
-	int   flags;
+	int	size;
+	int	stack;
+	int	nargs;
+	int	flags;
 } opcode_info_t ;
 
-opcode_info_t ops[ OP_MAX ];
+extern opcode_info_t ops[ OP_MAX ];
 
 #endif // VM_LOCAL_H

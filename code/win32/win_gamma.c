@@ -29,6 +29,53 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 static unsigned short s_oldHardwareGamma[3][256];
 
+static BOOL IsCurrentSessionRemoteable( void )
+{
+	BOOL fIsRemoteable = FALSE;
+
+	if ( GetSystemMetrics( SM_REMOTESESSION ) )
+	{
+		fIsRemoteable = TRUE;
+	}
+	else
+	{
+		#define TERMINAL_SERVER_KEY TEXT( "SYSTEM\\CurrentControlSet\\Control\\Terminal Server\\" )
+		#define GLASS_SESSION_ID TEXT( "GlassSessionId" )
+
+		HKEY hRegKey = NULL;
+		LONG lResult;
+
+		lResult = RegOpenKeyEx( HKEY_LOCAL_MACHINE,	TERMINAL_SERVER_KEY, 0, KEY_READ, &hRegKey );
+
+		if ( lResult == ERROR_SUCCESS )
+		{
+			DWORD dwGlassSessionId;
+			DWORD cbGlassSessionId = sizeof(dwGlassSessionId);
+			DWORD dwType;
+
+			lResult = RegQueryValueEx( hRegKey, GLASS_SESSION_ID, NULL, &dwType, (BYTE*)&dwGlassSessionId, &cbGlassSessionId );
+
+			if ( lResult == ERROR_SUCCESS )
+			{
+				DWORD dwCurrentSessionId;
+
+				if ( ProcessIdToSessionId( GetCurrentProcessId(), &dwCurrentSessionId  ) )
+				{
+					fIsRemoteable = ( dwCurrentSessionId != dwGlassSessionId );
+				}
+			}
+		}
+
+		if ( hRegKey )
+		{
+			RegCloseKey( hRegKey );
+		}
+	}
+
+	return fIsRemoteable;
+}
+
+
 /*
 ** GLW_InitGamma
 **
@@ -36,20 +83,40 @@ static unsigned short s_oldHardwareGamma[3][256];
 */
 void GLimp_InitGamma( glconfig_t *config )
 {
-	HDC			hDC;
+	HDC		hDC;
 
 	config->deviceSupportsGamma = qfalse;
+
+	if ( IsCurrentSessionRemoteable() )
+	{
+		return; // no hardware gamma control via RDP
+	}
 
 	if ( glw_state.displayName[0] )
 	{
 		hDC = CreateDC( TEXT( "DISPLAY" ), glw_state.displayName, NULL, NULL );
 		config->deviceSupportsGamma = ( GetDeviceGammaRamp( hDC, s_oldHardwareGamma ) == FALSE ) ? qfalse : qtrue;
+		if ( config->deviceSupportsGamma )
+		{
+			// do test setup
+			if ( SetDeviceGammaRamp( hDC, s_oldHardwareGamma ) == FALSE )
+			{
+				config->deviceSupportsGamma = qfalse;
+			}
+		}
 		DeleteDC( hDC );
 	}
 	else
 	{
 		hDC = GetDC( GetDesktopWindow() );
 		config->deviceSupportsGamma = ( GetDeviceGammaRamp( hDC, s_oldHardwareGamma ) == FALSE ) ? qfalse : qtrue;
+		if ( config->deviceSupportsGamma )
+		{
+			if ( SetDeviceGammaRamp( hDC, s_oldHardwareGamma ) == FALSE )
+			{
+				config->deviceSupportsGamma = qfalse;
+			}
+		}
 		ReleaseDC( GetDesktopWindow(), hDC );
 	}
 
@@ -84,6 +151,8 @@ void GLimp_InitGamma( glconfig_t *config )
 			}
 		}
 	} // if ( config->deviceSupportsGamma )
+
+	glw_state.deviceSupportsGamma = config->deviceSupportsGamma;
 }
 
 
@@ -126,7 +195,7 @@ void GLimp_SetGamma( unsigned char red[256], unsigned char green[256], unsigned 
 	BOOL	ret;
 	HDC		hDC;
 
-	if ( !glw_state.hDC || !gw_active )
+	if ( /*!glw_state.hDC* ||*/ !gw_active )
 		return;
 
 //mapGammaMax();
@@ -164,7 +233,9 @@ void GLimp_SetGamma( unsigned char red[256], unsigned char green[256], unsigned 
 		ret = SetDeviceGammaRamp( hDC, table );
 		DeleteDC( hDC );
 	} else {
-		ret = SetDeviceGammaRamp( glw_state.hDC, table );
+		hDC = GetDC( GetDesktopWindow() );
+		ret = SetDeviceGammaRamp( hDC, table );
+		ReleaseDC( GetDesktopWindow(), hDC );
 	}
 
 	if ( !ret ) {
@@ -182,6 +253,11 @@ void GLW_RestoreGamma( void )
 {
 	HDC hDC;
 	BOOL ret;
+
+	if ( !glw_state.deviceSupportsGamma ) {
+		return;
+	}	
+
 	if ( glw_state.displayName[0] ) {
 		hDC = CreateDC( TEXT( "DISPLAY" ), glw_state.displayName, NULL, NULL );
 		ret = SetDeviceGammaRamp( hDC, s_oldHardwareGamma );
@@ -191,6 +267,8 @@ void GLW_RestoreGamma( void )
 		ret = SetDeviceGammaRamp( hDC, s_oldHardwareGamma );
 		ReleaseDC( GetDesktopWindow(), hDC );
 	}
-	if ( ret )
+
+	if ( ret ) {
 		glw_state.gammaSet = qfalse;
+	}
 }

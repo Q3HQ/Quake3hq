@@ -188,22 +188,22 @@ void R_MDRAddAnimSurfaces( trRefEntity_t *ent ) {
 	qboolean	personalModel;
 
 	header = (mdrHeader_t *) tr.currentModel->modelData;
-	
-	personalModel = (ent->e.renderfx & RF_THIRD_PERSON) && !tr.viewParms.isPortal;
-	
+
+	personalModel = (ent->e.renderfx & RF_THIRD_PERSON) && (tr.viewParms.portalView == PV_NONE);
+
 	if ( ent->e.renderfx & RF_WRAP_FRAMES )
 	{
 		ent->e.frame %= header->numFrames;
 		ent->e.oldframe %= header->numFrames;
-	}	
-	
+	}
+
 	//
 	// Validate the frames so there is no chance of a crash.
 	// This will write directly into the entity structure, so
 	// when the surfaces are rendered, they don't need to be
 	// range checked again.
 	//
-	if ((ent->e.frame >= header->numFrames) 
+	if ((ent->e.frame >= header->numFrames)
 		|| (ent->e.frame < 0)
 		|| (ent->e.oldframe >= header->numFrames)
 		|| (ent->e.oldframe < 0) )
@@ -221,7 +221,7 @@ void R_MDRAddAnimSurfaces( trRefEntity_t *ent ) {
 	cull = R_MDRCullModel (header, ent);
 	if ( cull == CULL_OUT ) {
 		return;
-	}	
+	}
 
 	// figure out the current LOD of the model we're rendering, and set the lod pointer respectively.
 	lodnum = R_ComputeLOD(ent);
@@ -401,21 +401,31 @@ void RB_MDRSurfaceAnim( mdrSurface_t *surface )
 			tempVert[1] += w->boneWeight * ( DotProduct( bone->matrix[1], w->offset ) + bone->matrix[1][3] );
 			tempVert[2] += w->boneWeight * ( DotProduct( bone->matrix[2], w->offset ) + bone->matrix[2][3] );
 			
-			tempNormal[0] += w->boneWeight * DotProduct( bone->matrix[0], v->normal );
-			tempNormal[1] += w->boneWeight * DotProduct( bone->matrix[1], v->normal );
-			tempNormal[2] += w->boneWeight * DotProduct( bone->matrix[2], v->normal );
+#ifdef USE_TESS_NEEDS_NORMAL
+			if ( tess.needsNormal )
+#endif
+			{
+				tempNormal[0] += w->boneWeight * DotProduct( bone->matrix[0], v->normal );
+				tempNormal[1] += w->boneWeight * DotProduct( bone->matrix[1], v->normal );
+				tempNormal[2] += w->boneWeight * DotProduct( bone->matrix[2], v->normal );
+			}
 		}
 
 		tess.xyz[baseVertex + j][0] = tempVert[0];
 		tess.xyz[baseVertex + j][1] = tempVert[1];
 		tess.xyz[baseVertex + j][2] = tempVert[2];
 
-		tess.normal[baseVertex + j][0] = tempNormal[0];
-		tess.normal[baseVertex + j][1] = tempNormal[1];
-		tess.normal[baseVertex + j][2] = tempNormal[2];
+#ifdef USE_TESS_NEEDS_NORMAL
+		if ( tess.needsNormal )
+#endif
+		{
+			tess.normal[baseVertex + j][0] = tempNormal[0];
+			tess.normal[baseVertex + j][1] = tempNormal[1];
+			tess.normal[baseVertex + j][2] = tempNormal[2];
+		}
 
-		tess.texCoords[baseVertex + j][0][0] = v->texCoords[0];
-		tess.texCoords[baseVertex + j][0][1] = v->texCoords[1];
+		tess.texCoords[0][baseVertex + j][0] = v->texCoords[0];
+		tess.texCoords[0][baseVertex + j][1] = v->texCoords[1];
 
 		v = (mdrVertex_t *)&v->weights[v->numWeights];
 	}

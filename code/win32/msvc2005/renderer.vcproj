@@ -42,7 +42,7 @@
 			/>
 			<Tool
 				Name="VCCLCompilerTool"
-				PreprocessorDefinitions="WIN32;NDEBUG;_LIB;_CRT_SECURE_NO_DEPRECATE"
+				PreprocessorDefinitions="NDEBUG;_CRT_SECURE_NO_DEPRECATE"
 				AssemblerListingLocation="$(IntDir)\"
 				ObjectFile="$(IntDir)\"
 				ProgramDataBaseFileName="$(IntDir)\"
@@ -107,7 +107,7 @@
 			/>
 			<Tool
 				Name="VCCLCompilerTool"
-				PreprocessorDefinitions="WIN32;NDEBUG;_LIB;_CRT_SECURE_NO_DEPRECATE"
+				PreprocessorDefinitions="NDEBUG;_CRT_SECURE_NO_DEPRECATE"
 				AssemblerListingLocation="$(IntDir)\"
 				ObjectFile="$(IntDir)\"
 				ProgramDataBaseFileName="$(IntDir)\"
@@ -172,7 +172,7 @@
 			<Tool
 				Name="VCCLCompilerTool"
 				Optimization="0"
-				PreprocessorDefinitions="WIN32;_DEBUG;_LIB;_CRT_SECURE_NO_DEPRECATE"
+				PreprocessorDefinitions="_DEBUG;_CRT_SECURE_NO_DEPRECATE"
 				BasicRuntimeChecks="3"
 				RuntimeLibrary="1"
 				AssemblerListingLocation="$(IntDir)\"
@@ -242,7 +242,7 @@
 			<Tool
 				Name="VCCLCompilerTool"
 				Optimization="0"
-				PreprocessorDefinitions="WIN32;_DEBUG;_LIB;_CRT_SECURE_NO_DEPRECATE"
+				PreprocessorDefinitions="_DEBUG;_CRT_SECURE_NO_DEPRECATE"
 				BasicRuntimeChecks="3"
 				RuntimeLibrary="1"
 				AssemblerListingLocation="$(IntDir)\"
@@ -321,7 +321,7 @@
 				>
 			</File>
 			<File
-				RelativePath="..\..\renderer\tr_font.c"
+				RelativePath="..\..\renderercommon\tr_font.c"
 				>
 			</File>
 			<File
@@ -329,23 +329,23 @@
 				>
 			</File>
 			<File
-				RelativePath="..\..\renderer\tr_image_bmp.c"
+				RelativePath="..\..\renderercommon\tr_image_bmp.c"
 				>
 			</File>
 			<File
-				RelativePath="..\..\renderer\tr_image_jpg.c"
+				RelativePath="..\..\renderercommon\tr_image_jpg.c"
 				>
 			</File>
 			<File
-				RelativePath="..\..\renderer\tr_image_pcx.c"
+				RelativePath="..\..\renderercommon\tr_image_pcx.c"
 				>
 			</File>
 			<File
-				RelativePath="..\..\renderer\tr_image_png.c"
+				RelativePath="..\..\renderercommon\tr_image_png.c"
 				>
 			</File>
 			<File
-				RelativePath="..\..\renderer\tr_image_tga.c"
+				RelativePath="..\..\renderercommon\tr_image_tga.c"
 				>
 			</File>
 			<File
@@ -377,7 +377,7 @@
 				>
 			</File>
 			<File
-				RelativePath="..\..\renderer\tr_noise.c"
+				RelativePath="..\..\renderercommon\tr_noise.c"
 				>
 			</File>
 			<File
@@ -450,11 +450,11 @@
 				>
 			</File>
 			<File
-				RelativePath="..\..\renderer\tr_public.h"
+				RelativePath="..\..\renderercommon\tr_public.h"
 				>
 			</File>
 			<File
-				RelativePath="..\..\renderer\tr_types.h"
+				RelativePath="..\..\renderercommon\tr_types.h"
 				>
 			</File>
 		</Filter>

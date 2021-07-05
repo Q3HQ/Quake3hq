@@ -28,13 +28,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "resource.h"
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <errno.h>
-#include <float.h>
-#include <fcntl.h>
-#include <stdio.h>
 #include <direct.h>
-//#include <io.h>
-//#include <conio.h>
 
 #define MEM_THRESHOLD (96*1024*1024)
 
@@ -79,7 +73,6 @@ void QDECL Sys_Error( const char *error, ... ) {
 	va_end( argptr );
 
 #ifndef DEDICATED
-	IN_Shutdown();
 	CL_Shutdown( text, qtrue );
 #endif
 
@@ -115,10 +108,6 @@ Sys_Quit
 void Sys_Quit( void ) {
 
 	timeEndPeriod( 1 );
-
-#ifndef DEDICATED
-	IN_Shutdown();
-#endif
 
 	Sys_DestroyConsole();
 	exit( 0 );
@@ -168,6 +157,28 @@ FILE *Sys_FOpen( const char *ospath, const char *mode )
 
 /*
 ==============
+Sys_ResetReadOnlyAttribute
+==============
+*/
+qboolean Sys_ResetReadOnlyAttribute( const char *ospath ) {
+	DWORD dwAttr;
+
+	dwAttr = GetFileAttributesA( ospath );
+	if ( dwAttr & FILE_ATTRIBUTE_READONLY ) {
+		dwAttr &= ~FILE_ATTRIBUTE_READONLY;
+		if ( SetFileAttributesA( ospath, dwAttr ) ) {
+			return qtrue;
+		} else {
+			return qfalse;
+		}
+	} else {
+		return qfalse;
+	}
+}
+
+
+/*
+==============
 Sys_Pwd
 ==============
 */
@@ -180,10 +191,10 @@ const char *Sys_Pwd( void )
 	if ( pwd[0] )
 		return pwd;
 
-	GetModuleFileName( NULL, buffer, ARRAY_LEN( buffer ) -1 );
+	GetModuleFileName( NULL, buffer, ARRAY_LEN( buffer ) );
 	buffer[ ARRAY_LEN( buffer ) - 1 ] = '\0';
 
-	strcpy( pwd, WtoA( buffer ) );
+	Q_strncpyz( pwd, WtoA( buffer ), sizeof( pwd ) );
 
 	s = strrchr( pwd, PATH_SEP );
 	if ( s ) 
@@ -278,7 +289,7 @@ void Sys_Sleep( int msec ) {
 		msec = 300;
 		do {
 			dwResult = MsgWaitForMultipleObjects( 0, NULL, FALSE, msec, QS_ALLEVENTS );
-		} while ( dwResult == WAIT_TIMEOUT && NET_Sleep( 10, 0 ) );
+		} while ( dwResult == WAIT_TIMEOUT && NET_Sleep( 10 * 1000 ) );
 		//WaitMessage();
 		return;
 	}
@@ -448,64 +459,6 @@ qboolean Sys_GetFileStats( const char *filename, fileOffset_t *size, fileTime_t 
 
 //========================================================
 
-
-/*
-================
-Sys_GetClipboardData
-================
-*/
-char *Sys_GetClipboardData( void ) {
-	char *data = NULL;
-	char *cliptext;
-
-	if ( OpenClipboard( NULL ) ) {
-		HANDLE hClipboardData;
-		DWORD size;
-
-		// GetClipboardData performs implicit CF_UNICODETEXT => CF_TEXT conversion
-		if ( ( hClipboardData = GetClipboardData( CF_TEXT ) ) != 0 ) {
-			if ( ( cliptext = GlobalLock( hClipboardData ) ) != 0 ) {
-				size = GlobalSize( hClipboardData ) + 1;
-				data = Z_Malloc( size );
-				Q_strncpyz( data, cliptext, size );
-				GlobalUnlock( hClipboardData );
-				
-				strtok( data, "\n\r\b" );
-			}
-		}
-		CloseClipboard();
-	}
-	return data;
-}
-
-
-/*
-================
-Sys_SetClipboardBitmap
-================
-*/
-void Sys_SetClipboardBitmap( const byte *bitmap, int length )
-{
-	HGLOBAL hMem;
-	byte *ptr;
-
-	if ( !g_wv.hWnd || !OpenClipboard( g_wv.hWnd ) )
-		return;
-
-	EmptyClipboard();
-	hMem = GlobalAlloc( GMEM_MOVEABLE | GMEM_DDESHARE, length );
-	if ( hMem != NULL ) {
-		ptr = ( byte* )GlobalLock( hMem );
-		if ( ptr != NULL ) {
-			memcpy( ptr, bitmap, length ); 
-		}
-		GlobalUnlock( hMem );
-		SetClipboardData( CF_DIB, hMem );
-	}
-	CloseClipboard();
-}
-
-
 /*
 ========================================================================
 
@@ -521,7 +474,7 @@ static int dll_err_count = 0;
 Sys_LoadLibrary
 =================
 */
-void *Sys_LoadLibrary( const char *name ) 
+void *Sys_LoadLibrary( const char *name )
 {
 	const char *ext;
 
@@ -542,7 +495,7 @@ void *Sys_LoadLibrary( const char *name )
 Sys_LoadFunction
 =================
 */
-void *Sys_LoadFunction( void *handle, const char *name ) 
+void *Sys_LoadFunction( void *handle, const char *name )
 {
 	void *symbol;
 
@@ -565,7 +518,7 @@ void *Sys_LoadFunction( void *handle, const char *name )
 Sys_LoadFunctionErrors
 =================
 */
-int Sys_LoadFunctionErrors( void ) 
+int Sys_LoadFunctionErrors( void )
 {
 	int result = dll_err_count;
 	dll_err_count = 0;
@@ -578,101 +531,10 @@ int Sys_LoadFunctionErrors( void )
 Sys_UnloadLibrary
 =================
 */
-void Sys_UnloadLibrary( void *handle ) 
+void Sys_UnloadLibrary( void *handle )
 {
-	if ( handle ) 
+	if ( handle )
 		FreeLibrary( handle );
-}
-
-
-/*
-=================
-Sys_UnloadDll
-=================
-*/
-void Sys_UnloadDll( void *dllHandle ) {
-	if ( !dllHandle ) {
-		return;
-	}
-	if ( !FreeLibrary( dllHandle ) ) {
-		Com_Error( ERR_FATAL, "Sys_UnloadDll FreeLibrary failed" );
-	}
-}
-
-
-/*
-=================
-Sys_LoadDll
-
-Used to load a development dll instead of a virtual machine
-
-TTimo: added some verbosity in debug
-=================
-*/
-void * QDECL Sys_LoadDll( const char *name, dllSyscall_t *entryPoint, dllSyscall_t systemcalls ) {
-
-	HINSTANCE	libHandle;
-	dllEntry_t	dllEntry;
-#ifdef DEBUG
-	TCHAR		currpath[ MAX_OSPATH ];
-#endif
-	const char	*basepath;
-	const char	*homepath;
-	const char	*gamedir;
-	char		*fn;
-	char		filename[ MAX_QPATH ];
-
-#if idx64
-	Com_sprintf( filename, sizeof( filename ), "%sx86_64.dll", name );
-#else
-	Com_sprintf( filename, sizeof( filename ), "%sx86.dll", name );
-#endif
-
-	basepath = Cvar_VariableString( "fs_basepath" );
-	homepath = Cvar_VariableString( "fs_homepath" );
-	gamedir = Cvar_VariableString( "fs_game" );
-	if ( !*gamedir ) {
-		gamedir = Cvar_VariableString( "fs_basegame" );
-	}
-	fn = filename;
-
-#ifdef DEBUG
-	if ( GetCurrentDirectory( currpath, ARRAY_LEN( currpath ) ) < ARRAY_LEN( currpath ) ) {
-		fn = FS_BuildOSPath( WtoA( currpath ), gamedir, filename );
-		libHandle = LoadLibrary( AtoW( filename ) );
-	} else
-#endif
-	libHandle = NULL;
-
-	if ( !libHandle && *homepath ) {
-		fn = FS_BuildOSPath( homepath, gamedir, filename );
-		libHandle = LoadLibrary( AtoW( fn ) );
-	}
-
-	if ( !libHandle && Q_stricmp( basepath, homepath ) ) {
-		fn = FS_BuildOSPath( basepath, gamedir, filename );
-		libHandle = LoadLibrary( AtoW( fn ) );
-	}
-
-	if ( !libHandle ) {
-		Com_Printf( "LoadLibrary '%s' failed\n", fn );
-		return NULL;
-	}
-
-	Com_Printf( "LoadLibrary '%s' ok\n", fn );
-
-	dllEntry = ( dllEntry_t ) GetProcAddress( libHandle, "dllEntry" ); 
-	*entryPoint = ( dllSyscall_t ) GetProcAddress( libHandle, "vmMain" );
-	if ( !*entryPoint || !dllEntry ) {
-		FreeLibrary( libHandle );
-		return NULL;
-	}
-
-	Com_Printf( "Sys_LoadDll(%s) found **vmMain** at %p\n", name, *entryPoint );
-	dllEntry( systemcalls );
-	Com_Printf( "Sys_LoadDll(%s) succeeded!\n", name );
-
-	return libHandle;
 }
 
 
@@ -683,44 +545,18 @@ Sys_SendKeyEvents
 Platform-dependent event handling
 =================
 */
-void Sys_SendKeyEvents( void ) 
+void Sys_SendKeyEvents( void )
 {
-	MSG msg;
-
-	// pump the message loop
-	while ( PeekMessage( &msg, NULL, 0, 0, PM_NOREMOVE ) ) {
-		if ( GetMessage( &msg, NULL, 0, 0 ) <= 0 ) {
-			Cmd_Clear();
-			Com_Quit_f();
-		}
-
-		// save the msg time, because wndprocs don't have access to the timestamp
-		//g_wv.sysMsgTime = msg.time;
-		g_wv.sysMsgTime = Sys_Milliseconds();
-
-		TranslateMessage( &msg );
-		DispatchMessage( &msg );
-	}
+#ifndef DEDICATED
+	if ( !com_dedicated->integer )
+		HandleEvents();
+	else
+#endif
+	HandleConsoleEvents();
 }
 
 
 //================================================================
-
-/*
-=================
-Sys_In_Restart_f
-
-Restart the input subsystem
-=================
-*/
-#ifndef DEDICATED
-
-void Sys_In_Restart_f( void ) {
-	IN_Shutdown();
-	IN_Init();
-}
-
-#endif
 
 
 /*
@@ -772,17 +608,7 @@ void Sys_Init( void ) {
 
 	SetTimerResolution();
 
-#ifndef DEDICATED
-	Cmd_AddCommand( "in_restart", Sys_In_Restart_f );
-#endif
-
 	Cvar_Set( "arch", "winnt" );
-
-#ifndef DEDICATED
-	glw_state.wndproc = MainWndProc;
-
-	IN_Init();
-#endif
 }
 
 //=======================================================================
@@ -793,6 +619,7 @@ void Sys_Init( void ) {
 SetDPIAwareness
 ==================
 */
+#if 0
 static void SetDPIAwareness( void ) 
 {
 	typedef HANDLE (WINAPI *pfnSetThreadDpiAwarenessContext)( HANDLE dpiContext );
@@ -824,9 +651,34 @@ static void SetDPIAwareness( void )
 		FreeLibrary( dll );
 	}
 }
+#endif
 
 
-#ifndef DEDICATED
+static const char *GetExceptionName( DWORD code )
+{
+	static char buf[ 32 ];
+
+	switch ( code )
+	{
+		case EXCEPTION_ACCESS_VIOLATION: return "ACCESS_VIOLATION";
+		case EXCEPTION_DATATYPE_MISALIGNMENT: return "DATATYPE_MISALIGNMENT";
+		case EXCEPTION_ARRAY_BOUNDS_EXCEEDED: return "ARRAY_BOUNDS_EXCEEDED";
+		case EXCEPTION_PRIV_INSTRUCTION: return "PRIV_INSTRUCTION";
+		case EXCEPTION_IN_PAGE_ERROR: return "IN_PAGE_ERROR";
+		case EXCEPTION_ILLEGAL_INSTRUCTION: return "ILLEGAL_INSTRUCTION";
+		case EXCEPTION_NONCONTINUABLE_EXCEPTION: return "NONCONTINUABLE_EXCEPTION";
+		case EXCEPTION_STACK_OVERFLOW: return "STACK_OVERFLOW";
+		case EXCEPTION_INVALID_DISPOSITION: return "INVALID_DISPOSITION";
+		case EXCEPTION_GUARD_PAGE: return "GUARD_PAGE";
+		case EXCEPTION_INVALID_HANDLE: return "INVALID_HANDLE";
+		default: break;
+	}
+
+	sprintf( buf, "0x%08X", (unsigned int)code );
+	return buf;
+}
+
+
 /*
 ==================
 ExceptionFilter
@@ -836,17 +688,49 @@ Restore gamma and hide fullscreen window in case of crash
 */
 static LONG WINAPI ExceptionFilter( struct _EXCEPTION_POINTERS *ExceptionInfo )
 {
-	if ( glw_state.gammaSet )
-		GLW_RestoreGamma();
+#ifndef DEDICATED
+	if ( com_dedicated->integer == 0 ) {
+		extern cvar_t *com_cl_running;
+		if ( com_cl_running  && com_cl_running->integer ) {
+			// assume we can restart client module
+		} else {
+			if ( glw_state.gammaSet )
+				GLW_RestoreGamma();
 
-	if ( g_wv.hWnd && glw_state.cdsFullscreen )
+			if ( g_wv.hWnd && glw_state.cdsFullscreen )
+				ShowWindow( g_wv.hWnd, SW_HIDE );
+		}
+	}
+#endif
+
+	if ( ExceptionInfo->ExceptionRecord->ExceptionCode != EXCEPTION_BREAKPOINT )
 	{
-		ShowWindow( g_wv.hWnd, SW_HIDE );
+		char msg[128];
+		byte *addr, *base;
+		qboolean vma;
+
+		addr = (byte*)ExceptionInfo->ExceptionRecord->ExceptionAddress;
+		base = (byte*)GetModuleHandle( NULL );
+
+		if ( addr >= base )
+		{
+			addr = (byte*)(addr - base);
+			vma = qtrue;
+		}
+		else
+		{
+			vma = qfalse;
+		}
+
+		sprintf( msg, "Exception Code: %s\nException Address: %p%s",
+			GetExceptionName( ExceptionInfo->ExceptionRecord->ExceptionCode ),
+			addr, vma ? " (VMA)" : "" );
+
+		Com_Error( ERR_DROP, "Unhandled exception caught\n%s", msg );
 	}
 
-	return EXCEPTION_CONTINUE_SEARCH;
+	return EXCEPTION_EXECUTE_HANDLER;
 }
-#endif
 
 
 /*
@@ -860,13 +744,22 @@ int WINAPI WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLin
 	char con_title[ MAX_CVAR_VALUE_STRING ];
 	int xpos, ypos;
 	qboolean useXYpos;
+	HANDLE hProcess;
+	DWORD dwPriority;
 
 	// should never get a previous instance in Win32
 	if ( hPrevInstance ) {
 		return 0;
 	}
 
-	SetDPIAwareness();
+	// slightly boost process priority if it set to default
+	hProcess = GetCurrentProcess();
+	dwPriority = GetPriorityClass( hProcess );
+	if ( dwPriority == NORMAL_PRIORITY_CLASS || dwPriority == ABOVE_NORMAL_PRIORITY_CLASS ) {
+		SetPriorityClass( hProcess, HIGH_PRIORITY_CLASS );
+	}
+
+	//SetDPIAwareness();
 
 	g_wv.hInstance = hInstance;
 	Q_strncpyz( sys_cmdline, lpCmdLine, sizeof( sys_cmdline ) );
@@ -879,9 +772,7 @@ int WINAPI WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLin
 	// no abort/retry/fail errors
 	SetErrorMode( SEM_FAILCRITICALERRORS );
 
-#ifndef DEDICATED
 	SetUnhandledExceptionFilter( ExceptionFilter );
-#endif
 
 	// get the initial time base
 	Sys_Milliseconds();

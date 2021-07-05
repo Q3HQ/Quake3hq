@@ -28,12 +28,11 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 typedef struct
 {
-	WNDPROC		wndproc;
-
 	HDC     hDC;			// handle to device context
 	HGLRC   hGLRC;			// handle to GL rendering context
 
 	HINSTANCE   OpenGLLib;  // HINSTANCE for the OpenGL library
+	HINSTANCE   VulkanLib;  // HINSTANCE for the Vulkan library
 
 	qboolean	pixelFormatSet;
 
@@ -42,8 +41,12 @@ typedef struct
 	int			desktopHeight;
 	int			desktopX;		// can be negative
 	int			desktopY;		// can be negative
+
+	RECT		workArea;
+
 	HMONITOR	hMonitor;		// current monitor
 	TCHAR		displayName[CCHDEVICENAME];
+	qboolean	deviceSupportsGamma;
 	qboolean	gammaSet;
 
 	qboolean	cdsFullscreen;
@@ -57,9 +60,8 @@ typedef struct
 
 extern glwstate_t glw_state;
 
-extern void GLW_RestoreGamma( void );
+void GLW_RestoreGamma( void );
 
-extern cvar_t *vid_xpos;
-extern cvar_t *vid_ypos;
+void HandleEvents( void );
 
 #endif

@@ -67,6 +67,9 @@ int SV_BotAllocateClient( void ) {
 	cl->netchan.remoteAddress.type = NA_BOT;
 	cl->rate = 0;
 
+	cl->tld[0] = '\0';
+	cl->country = "BOT";
+
 	return i;
 }
 
@@ -427,7 +430,7 @@ SV_BotClientCommand
 ==================
 */
 static void BotClientCommand( int client, const char *command ) {
-	SV_ExecuteClientCommand( &svs.clients[client], command, qtrue );
+	SV_ExecuteClientCommand( &svs.clients[client], command );
 }
 
 /*

@@ -405,12 +405,13 @@ qboolean CL_OpenAVIForWriting( const char *fileName, qboolean pipe )
   // Allocate a bit more space for the capture buffer to account for possible
   // padding at the end of pixel lines, and padding for alignment
   #define MAX_PACK_LEN 16
-  afd.cBuffer = Z_Malloc((afd.width * 3 + MAX_PACK_LEN - 1) * afd.height + MAX_PACK_LEN - 1);
+  //afd.cBuffer = Z_Malloc((afd.width * 3 + MAX_PACK_LEN - 1) * afd.height + MAX_PACK_LEN - 1);
+  afd.cBuffer = Z_Malloc((afd.width * afd.height * 4) + MAX_PACK_LEN - 1); // allocate for RGBA storage
   // raw avi files have pixel lines start on 4-byte boundaries
   afd.eBuffer = Z_Malloc(PAD(afd.width * 3, AVI_LINE_PADDING) * afd.height);
 
   afd.a.rate = dma.speed;
-  afd.a.format = WAV_FORMAT_PCM;
+  afd.a.format = dma.isfloat ? WAVE_FORMAT_IEEE_FLOAT : WAV_FORMAT_PCM;
   afd.a.channels = dma.channels;
   afd.a.bits = dma.samplebits;
   afd.a.sampleSize = ( afd.a.bits * afd.a.channels ) / 8;
@@ -423,14 +424,7 @@ qboolean CL_OpenAVIForWriting( const char *fileName, qboolean pipe )
   }
   else
   {
-    if ( afd.a.bits != 16 || afd.a.channels != 2 )
-    {
-      Com_Printf( S_COLOR_YELLOW "WARNING: Audio format of %d bit/%d channels not supported",
-          afd.a.bits, afd.a.channels );
-      afd.audio = qfalse;
-    }
-    else
-      afd.audio = qtrue;
+    afd.audio = qtrue;
   }
 
   // This doesn't write a real header, but allocates the

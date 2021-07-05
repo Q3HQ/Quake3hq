@@ -44,7 +44,7 @@
 				Name="VCCLCompilerTool"
 				Optimization="0"
 				AdditionalIncludeDirectories="..\..\libcurl\windows\include"
-				PreprocessorDefinitions="WIN32;_DEBUG;_WINDOWS;USE_CURL;CURL_STATICLIB;_CRT_SECURE_NO_DEPRECATE"
+				PreprocessorDefinitions="WIN32;_DEBUG;_WINDOWS;USE_CURL;CURL_STATICLIB;USE_VULKAN_API;_CRT_SECURE_NO_DEPRECATE"
 				BasicRuntimeChecks="3"
 				RuntimeLibrary="1"
 				AssemblerListingLocation="$(IntDir)\"
@@ -62,7 +62,7 @@
 				Name="VCResourceCompilerTool"
 				PreprocessorDefinitions="_DEBUG"
 				Culture="1033"
-				ResourceOutputFileName="..\winquake.res"
+				ResourceOutputFileName="$(IntDir)\winquake.res"
 			/>
 			<Tool
 				Name="VCPreLinkEventTool"
@@ -133,7 +133,7 @@
 				Name="VCCLCompilerTool"
 				Optimization="0"
 				AdditionalIncludeDirectories="..\..\libcurl\windows\include"
-				PreprocessorDefinitions="WIN32;_DEBUG;_WINDOWS;USE_CURL;CURL_STATICLIB;_CRT_SECURE_NO_DEPRECATE"
+				PreprocessorDefinitions="WIN32;_DEBUG;_WINDOWS;USE_CURL;CURL_STATICLIB;USE_VULKAN_API;_CRT_SECURE_NO_DEPRECATE"
 				BasicRuntimeChecks="3"
 				RuntimeLibrary="1"
 				AssemblerListingLocation="$(IntDir)\"
@@ -151,7 +151,7 @@
 				Name="VCResourceCompilerTool"
 				PreprocessorDefinitions="_DEBUG"
 				Culture="1033"
-				ResourceOutputFileName="..\winquake.res"
+				ResourceOutputFileName="$(IntDir)\winquake.res"
 			/>
 			<Tool
 				Name="VCPreLinkEventTool"
@@ -222,7 +222,7 @@
 			<Tool
 				Name="VCCLCompilerTool"
 				AdditionalIncludeDirectories="..\..\libcurl\windows\include"
-				PreprocessorDefinitions="WIN32;_WIN32;NDEBUG;_WINDOWS;_CRT_SECURE_NO_DEPRECATE;USE_SKIPIDLOGO;USE_CURL;CURL_STATICLIB"
+				PreprocessorDefinitions="WIN32;_WIN32;NDEBUG;_WINDOWS;USE_SKIPIDLOGO;USE_CURL;CURL_STATICLIB;USE_VULKAN_API;_CRT_SECURE_NO_DEPRECATE"
 				AssemblerListingLocation="$(IntDir)\"
 				ObjectFile="$(IntDir)\"
 				ProgramDataBaseFileName="$(IntDir)\"
@@ -306,7 +306,7 @@
 			<Tool
 				Name="VCCLCompilerTool"
 				AdditionalIncludeDirectories="..\..\libcurl\windows\include"
-				PreprocessorDefinitions="WIN32;_WIN32;NDEBUG;_WINDOWS;_CRT_SECURE_NO_DEPRECATE;USE_SKIPIDLOGO;USE_CURL;CURL_STATICLIB"
+				PreprocessorDefinitions="WIN32;_WIN32;NDEBUG;_WINDOWS;USE_SKIPIDLOGO;USE_CURL;CURL_STATICLIB;USE_VULKAN_API;_CRT_SECURE_NO_DEPRECATE"
 				AssemblerListingLocation="$(IntDir)\"
 				ObjectFile="$(IntDir)\"
 				ProgramDataBaseFileName="$(IntDir)\"
@@ -393,6 +393,10 @@
 			</File>
 			<File
 				RelativePath="..\..\client\cl_input.c"
+				>
+			</File>
+			<File
+				RelativePath="..\..\client\cl_jpeg.c"
 				>
 			</File>
 			<File
@@ -512,10 +516,6 @@
 				>
 			</File>
 			<File
-				RelativePath="..\..\client\snd_codec_ogg.c"
-				>
-			</File>
-			<File
 				RelativePath="..\..\client\snd_codec_wav.c"
 				>
 			</File>
@@ -620,6 +620,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\qcommon\vm_x86_ng.c"
+				>
+			</File>
+			<File
 				RelativePath="..\win_gamma.c"
 				>
 			</File>
@@ -641,6 +645,10 @@
 			</File>
 			<File
 				RelativePath="..\win_qgl.c"
+				>
+			</File>
+			<File
+				RelativePath="..\win_qvk.c"
 				>
 			</File>
 			<File
@@ -761,15 +769,19 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\server\tlds.h"
+				>
+			</File>
+			<File
 				RelativePath="..\..\renderer\tr_local.h"
 				>
 			</File>
 			<File
-				RelativePath="..\..\renderer\tr_public.h"
+				RelativePath="..\..\renderercommon\tr_public.h"
 				>
 			</File>
 			<File
-				RelativePath="..\..\renderer\tr_types.h"
+				RelativePath="..\..\renderercommon\tr_types.h"
 				>
 			</File>
 			<File

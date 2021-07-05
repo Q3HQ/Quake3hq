@@ -89,9 +89,9 @@ Adds command text at the end of the buffer, does NOT add a final \n
 */
 void Cbuf_AddText( const char *text ) {
 	int l;
-	
+
 	l = strlen (text);
-	
+
 	if (cmd_text.cursize + l >= cmd_text.maxsize)
 	{
 		Com_Printf ("Cbuf_AddText: overflow\n");
@@ -230,7 +230,7 @@ void Cbuf_Execute( void )
 
 		Com_Memcpy( line, text, i );
 		line[i] = '\0';
-		
+
 		// delete the text from the command buffer and move remaining commands down
 		// this is necessary because commands (exec) can insert data at the
 		// beginning of the text buffer
@@ -281,20 +281,22 @@ static void Cmd_Exec_f( void ) {
 
 	if (Cmd_Argc () != 2) {
 		Com_Printf ("exec%s <filename> : execute a script file%s\n",
-		            quiet ? "q" : "", quiet ? " without notification" : "");
+			quiet ? "q" : "", quiet ? " without notification" : "");
 		return;
 	}
 
 	Q_strncpyz( filename, Cmd_Argv(1), sizeof( filename ) );
 	COM_DefaultExtension( filename, sizeof( filename ), ".cfg" );
+	FS_BypassPure();
 	FS_ReadFile( filename, &f.v );
+	FS_RestorePure();
 	if ( f.v == NULL ) {
 		Com_Printf( "couldn't exec %s\n", filename );
 		return;
 	}
 	if (!quiet)
 		Com_Printf ("execing %s\n", filename);
-	
+
 	Cbuf_InsertText( f.c );
 
 #ifdef DELAY_WRITECONFIG
@@ -323,7 +325,7 @@ static void Cmd_Vstr_f( void ) {
 	}
 
 	v = Cvar_VariableString( Cmd_Argv( 1 ) );
-	Cbuf_InsertText( va( "%s\n", v ) );
+	Cbuf_InsertText( v );
 }
 
 
@@ -478,7 +480,7 @@ void Cmd_Args_Sanitize( const char *separators )
 	for( i = 1; i < cmd_argc; i++ )
 	{
 		char *c = cmd_argv[i];
-		
+
 		while ( ( c = strpbrk( c, separators ) ) != NULL ) {
 			*c = ' ';
 			++c;
@@ -492,8 +494,8 @@ void Cmd_Args_Sanitize( const char *separators )
 Cmd_TokenizeString
 
 Parses the given string into command line tokens.
-The text is copied to a seperate buffer and 0 characters
-are inserted in the apropriate place, The argv array
+The text is copied to a separate buffer and 0 characters
+are inserted in the appropriate place, The argv array
 will point into this temporary buffer.
 ============
 */
@@ -515,7 +517,7 @@ static void Cmd_TokenizeString2( const char *text_in, qboolean ignoreQuotes ) {
 	if ( !text_in ) {
 		return;
 	}
-	
+
 	Q_strncpyz( cmd_cmd, text_in, sizeof( cmd_cmd ) );
 
 	text = cmd_cmd; // read from safe-length buffer
@@ -650,7 +652,7 @@ Cmd_AddCommand
 */
 void Cmd_AddCommand( const char *cmd_name, xcommand_t function ) {
 	cmd_function_t *cmd;
-	
+
 	// fail if the command already exists
 	if ( Cmd_FindCommand( cmd_name ) )
 	{
@@ -771,7 +773,7 @@ Cmd_CommandCompletion
 */
 void Cmd_CommandCompletion( void(*callback)(const char *s) ) {
 	const cmd_function_t *cmd;
-	
+
 	for ( cmd = cmd_functions ; cmd ; cmd=cmd->next ) {
 		callback( cmd->name );
 	}
@@ -835,7 +837,7 @@ void Cmd_ExecuteString( const char *text ) {
 			return;
 		}
 	}
-	
+
 	// check cvars
 	if ( Cvar_Command() ) {
 		return;
@@ -901,7 +903,7 @@ Cmd_CompleteCfgName
 */
 static void Cmd_CompleteCfgName( char *args, int argNum ) {
 	if( argNum == 2 ) {
-		Field_CompleteFilename( "", "cfg", qfalse, FS_MATCH_ANY );
+		Field_CompleteFilename( "", "cfg", qfalse, FS_MATCH_ANY | FS_MATCH_STICK );
 	}
 }
 

@@ -370,10 +370,10 @@ static intptr_t SV_GameSystemCalls( intptr_t *args ) {
 	case G_MILLISECONDS:
 		return Sys_Milliseconds();
 	case G_CVAR_REGISTER:
-		Cvar_Register( VMA(1), VMA(2), VMA(3), args[4] ); 
+		Cvar_Register( VMA(1), VMA(2), VMA(3), args[4], gvm->privateFlag ); 
 		return 0;
 	case G_CVAR_UPDATE:
-		Cvar_Update( VMA(1) );
+		Cvar_Update( VMA(1), gvm->privateFlag );
 		return 0;
 	case G_CVAR_SET:
 		Cvar_SetSafe( (const char *)VMA(1), (const char *)VMA(2) );
@@ -488,11 +488,18 @@ static intptr_t SV_GameSystemCalls( intptr_t *args ) {
 		return 0;
 	case G_GET_ENTITY_TOKEN:
 		{
-			const char	*s;
-			s = COM_Parse( &sv.entityParsePoint );
+			const char *s = COM_Parse( &sv.entityParsePoint );
 			VM_CHECKBOUNDS( gvm, args[1], args[2] );
-			Q_strncpyz( VMA(1), s, args[2] );
-			if ( !sv.entityParsePoint && !s[0] ) {
+			//Q_strncpyz( VMA(1), s, args[2] );
+			// we can't use our optimized Q_strncpyz() function
+			// because of uninitialized memory bug in defrag mod
+			{
+				char *dst = (char*)VMA(1);
+				const int size = args[2]-1;
+				strncpy( dst, s, size );
+				dst[ size ] = '\0';
+			}
+			if ( !sv.entityParsePoint && s[0] == '\0' ) {
 				return qfalse;
 			} else {
 				return qtrue;
@@ -529,6 +536,7 @@ static intptr_t SV_GameSystemCalls( intptr_t *args ) {
 	case BOTLIB_PC_FREE_SOURCE:
 		return botlib_export->PC_FreeSourceHandle( args[1] );
 	case BOTLIB_PC_READ_TOKEN:
+		VM_CHECKBOUNDS( gvm, args[2], sizeof( pc_token_t ) );
 		return botlib_export->PC_ReadTokenHandle( args[1], VMA(2) );
 	case BOTLIB_PC_SOURCE_FILE_AND_LINE:
 		return botlib_export->PC_SourceFileAndLine( args[1], VMA(2), VMA(3) );

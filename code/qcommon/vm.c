@@ -1,6 +1,7 @@
 /*
 ===========================================================================
 Copyright (C) 1999-2005 Id Software, Inc.
+Copyright (C) 2012-2020 Quake3e project
 
 This file is part of Quake III Arena source code.
 
@@ -35,8 +36,9 @@ and one exported function: Perform
 
 #include "vm_local.h"
 
-opcode_info_t ops[ OP_MAX ] = 
+opcode_info_t ops[ OP_MAX ] =
 {
+	// size, stack, nargs, flags
 	{ 0, 0, 0, 0 }, // undef
 	{ 0, 0, 0, 0 }, // ignore
 	{ 0, 0, 0, 0 }, // break
@@ -64,13 +66,13 @@ opcode_info_t ops[ OP_MAX ] =
 	{ 4,-8, 2, JUMP }, // gtu
 	{ 4,-8, 2, JUMP }, // geu
 
-	{ 4,-8, 2, JUMP }, // eqf
-	{ 4,-8, 2, JUMP }, // nef
+	{ 4,-8, 2, JUMP|FPU }, // eqf
+	{ 4,-8, 2, JUMP|FPU }, // nef
 
-	{ 4,-8, 2, JUMP }, // ltf
-	{ 4,-8, 2, JUMP }, // lef
-	{ 4,-8, 2, JUMP }, // gtf
-	{ 4,-8, 2, JUMP }, // gef
+	{ 4,-8, 2, JUMP|FPU }, // ltf
+	{ 4,-8, 2, JUMP|FPU }, // lef
+	{ 4,-8, 2, JUMP|FPU }, // gtf
+	{ 4,-8, 2, JUMP|FPU }, // gef
 
 	{ 0, 0, 1, 0 }, // load1
 	{ 0, 0, 1, 0 }, // load2
@@ -103,20 +105,20 @@ opcode_info_t ops[ OP_MAX ] =
 	{ 0,-4, 3, 0 }, // rshi
 	{ 0,-4, 3, 0 }, // rshu
 
-	{ 0, 0, 1, 0 }, // negf
-	{ 0,-4, 3, 0 }, // addf
-	{ 0,-4, 3, 0 }, // subf
-	{ 0,-4, 3, 0 }, // divf
-	{ 0,-4, 3, 0 }, // mulf
+	{ 0, 0, 1, FPU }, // negf
+	{ 0,-4, 3, FPU }, // addf
+	{ 0,-4, 3, FPU }, // subf
+	{ 0,-4, 3, FPU }, // divf
+	{ 0,-4, 3, FPU }, // mulf
 
-	{ 0, 0, 1, 0 }, // cvif
-	{ 0, 0, 1, 0 } // cvfi
+	{ 0, 0, 1, 0 },   // cvif
+	{ 0, 0, 1, FPU }  // cvfi
 };
 
 const char *opname[ 256 ] = {
-	"OP_UNDEF", 
+	"OP_UNDEF",
 
-	"OP_IGNORE", 
+	"OP_IGNORE",
 
 	"OP_BREAK",
 
@@ -203,7 +205,9 @@ const char *opname[ 256 ] = {
 
 cvar_t	*vm_rtChecks;
 
+#ifdef DEBUG
 int		vm_debugLevel;
+#endif
 
 // used by Com_Error to get rid of running vm's before longjmp
 static int forced_unload;
@@ -216,14 +220,14 @@ static const char *vmName[ VM_COUNT ] = {
 	"ui"
 };
 
-void VM_VmInfo_f( void );
-void VM_VmProfile_f( void );
+static void VM_VmInfo_f( void );
+static void VM_VmProfile_f( void );
 
-
+#ifdef DEBUG
 void VM_Debug( int level ) {
 	vm_debugLevel = level;
 }
-
+#endif
 
 /*
 ==============
@@ -265,9 +269,11 @@ VM_Init
 ==============
 */
 void VM_Init( void ) {
-	Cvar_Get( "vm_cgame", "2", CVAR_ARCHIVE | CVAR_PROTECTED );	// !@# SHIP WITH SET TO 2
-	Cvar_Get( "vm_game", "2", CVAR_ARCHIVE | CVAR_PROTECTED );	// !@# SHIP WITH SET TO 2
+#ifndef DEDICATED
 	Cvar_Get( "vm_ui", "2", CVAR_ARCHIVE | CVAR_PROTECTED );	// !@# SHIP WITH SET TO 2
+	Cvar_Get( "vm_cgame", "2", CVAR_ARCHIVE | CVAR_PROTECTED );	// !@# SHIP WITH SET TO 2
+#endif
+	Cvar_Get( "vm_game", "2", CVAR_ARCHIVE | CVAR_PROTECTED );	// !@# SHIP WITH SET TO 2
 
 	Cmd_AddCommand( "vmprofile", VM_VmProfile_f );
 	Cmd_AddCommand( "vminfo", VM_VmInfo_f );
@@ -406,6 +412,7 @@ int	ParseHex( const char *text ) {
 	return value;
 }
 
+
 /*
 ===============
 VM_LoadSymbols
@@ -528,7 +535,7 @@ Dlls will call this directly
 
   For speed, we just grab 15 arguments, and don't worry about exactly
    how many the syscall actually needs; the extra is thrown away.
- 
+
 ============
 */
 #if 0 // - disabled because now is different for each module
@@ -538,14 +545,14 @@ intptr_t QDECL VM_DllSyscall( intptr_t arg, ... ) {
   intptr_t	args[16];
   va_list	ap;
   int i;
-  
+
   args[0] = arg;
-  
+
   va_start( ap, arg );
   for (i = 1; i < ARRAY_LEN( args ); i++ )
     args[ i ] = va_arg( ap, intptr_t );
   va_end( ap );
-  
+
   return currentVM->systemCall( args );
 #else // original id code
 	return currentVM->systemCall( &arg );
@@ -567,7 +574,7 @@ static void VM_SwapLongs( void *data, int length )
 }
 
 
-static int Load_JTS( vm_t *vm, unsigned int crc32, void *data, int vmPakIndex )  {
+static int Load_JTS( vm_t *vm, unsigned int crc32, void *data, int vmPakIndex ) {
 	char		filename[MAX_QPATH];
 	int			header[2];
 	int			length;
@@ -579,7 +586,7 @@ static int Load_JTS( vm_t *vm, unsigned int crc32, void *data, int vmPakIndex ) 
 		Com_Printf( "Loading jts file %s...\n", filename );
 
 	length = FS_FOpenFileRead( filename, &fh, qtrue );
-	
+
 	if ( fh == FS_INVALID_HANDLE ) {
 		if ( data )
 			Com_Printf( " not found.\n" );
@@ -626,7 +633,7 @@ static int Load_JTS( vm_t *vm, unsigned int crc32, void *data, int vmPakIndex ) 
 	length -= sizeof( header ); // skip header and filesize
 
 	// we need just filesize
-	if ( !data ) { 
+	if ( !data ) {
 		FS_FCloseFile( fh );
 		return length;
 	}
@@ -646,13 +653,13 @@ static int Load_JTS( vm_t *vm, unsigned int crc32, void *data, int vmPakIndex ) 
 VM_ValidateHeader
 =================
 */
-static char *VM_ValidateHeader( vmHeader_t *header, int fileSize ) 
+static char *VM_ValidateHeader( vmHeader_t *header, int fileSize )
 {
 	static char errMsg[128];
 	int n;
 
 	// truncated
-	if ( fileSize < ( sizeof( vmHeader_t ) - sizeof( int ) ) ) {
+	if ( fileSize < ( sizeof( vmHeader_t ) - sizeof( int32_t ) ) ) {
 		sprintf( errMsg, "truncated image header (%i bytes long)", fileSize );
 		return errMsg;
 	}
@@ -662,7 +669,7 @@ static char *VM_ValidateHeader( vmHeader_t *header, int fileSize )
 		sprintf( errMsg, "bad file magic %08x", LittleLong( header->vmMagic ) );
 		return errMsg;
 	}
-	
+
 	// truncated
 	if ( fileSize < sizeof( vmHeader_t ) && LittleLong( header->vmMagic ) != VM_MAGIC_VER2 ) {
 		sprintf( errMsg, "truncated image header (%i bytes long)", fileSize );
@@ -672,7 +679,7 @@ static char *VM_ValidateHeader( vmHeader_t *header, int fileSize )
 	if ( LittleLong( header->vmMagic ) == VM_MAGIC_VER2 )
 		n = sizeof( vmHeader_t );
 	else
-		n = ( sizeof( vmHeader_t ) - sizeof( int ) );
+		n = ( sizeof( vmHeader_t ) - sizeof( int32_t ) );
 
 	// byte swap the header
 	VM_SwapLongs( header, n );
@@ -701,22 +708,20 @@ static char *VM_ValidateHeader( vmHeader_t *header, int fileSize )
 		return errMsg;
 	}
 
-	if ( header->vmMagic == VM_MAGIC_VER2 ) 
-	{
+	if ( header->vmMagic == VM_MAGIC_VER2 ) {
 		// bad lit/jtrg length
 		if ( header->dataOffset + header->dataLength + header->litLength + header->jtrgLength != fileSize ) {
 			sprintf( errMsg, "bad lit/jtrg segment length" );
 			return errMsg;
 		}
-	} 
+	}
 	// bad lit length
-	else if ( header->dataOffset + header->dataLength + header->litLength != fileSize ) 
-	{
+	else if ( header->dataOffset + header->dataLength + header->litLength != fileSize ) {
 		sprintf( errMsg, "bad lit segment length %i", header->litLength );
 		return errMsg;
 	}
 
-	return NULL;	
+	return NULL;
 }
 
 
@@ -783,11 +788,14 @@ static vmHeader_t *VM_LoadQVM( vm_t *vm, qboolean alloc ) {
 
 	vm->exactDataLength = header->dataLength + header->litLength + header->bssLength;
 	dataLength = vm->exactDataLength + PROGRAM_STACK_EXTRA;
+	if ( dataLength < PROGRAM_STACK_SIZE + PROGRAM_STACK_EXTRA ) {
+		dataLength = PROGRAM_STACK_SIZE + PROGRAM_STACK_EXTRA;
+	}
 	vm->dataLength = dataLength;
 
 	// round up to next power of 2 so all data operations can
 	// be mask protected
-	for ( i = 0 ; dataLength > ( 1 << i ) ; i++ ) 
+	for ( i = 0 ; dataLength > ( 1 << i ) ; i++ )
 		;
 	dataLength = 1 << i;
 
@@ -795,6 +803,7 @@ static vmHeader_t *VM_LoadQVM( vm_t *vm, qboolean alloc ) {
 	dataAlloc = dataLength + 1024;
 
 	if ( dataLength >= (1U<<31) || dataAlloc >= (1U<<31) ) {
+		// dataLenth is negative int32
 		VM_Free( vm );
 		FS_FreeFile( header );
 		Com_Printf( S_COLOR_RED "%s: data segment is too large\n", __func__ );
@@ -840,7 +849,7 @@ static vmHeader_t *VM_LoadQVM( vm_t *vm, qboolean alloc ) {
 				FS_FreeFile( header );
 
 				Com_Printf( S_COLOR_YELLOW "Warning: Jump table size of %s not matching after "
-						"VM_Restart()\n", filename );
+					"VM_Restart()\n", filename );
 				return NULL;
 			}
 
@@ -875,6 +884,185 @@ static vmHeader_t *VM_LoadQVM( vm_t *vm, qboolean alloc ) {
 }
 
 
+static void VM_IgnoreInstructions( instruction_t *buf, const int count ) {
+	int i;
+
+	for ( i = 0; i < count; i++ ) {
+		Com_Memset( buf + i, 0, sizeof( *buf ) );
+		buf[i].op = OP_IGNORE;
+	}
+
+	buf[0].value = count > 0 ? count - 1 : 0;
+}
+
+
+static int InvertCondition( int op )
+{
+	switch ( op ) {
+		case OP_EQ: return OP_NE;   // == -> !=
+		case OP_NE: return OP_EQ;   // != -> ==
+
+		case OP_LTI: return OP_GEI;	// <  -> >=
+		case OP_LEI: return OP_GTI;	// <= -> >
+		case OP_GTI: return OP_LEI; // >  -> <=
+		case OP_GEI: return OP_LTI; // >= -> <
+
+		case OP_LTU: return OP_GEU;
+		case OP_LEU: return OP_GTU;
+		case OP_GTU: return OP_LEU;
+		case OP_GEU: return OP_LTU;
+
+		case OP_EQF: return OP_NEF;
+		case OP_NEF: return OP_EQF;
+
+		case OP_LTF: return OP_GEF;
+		case OP_LEF: return OP_GTF;
+		case OP_GTF: return OP_LEF;
+		case OP_GEF: return OP_LTF;
+
+		default: 
+			Com_Error( ERR_DROP, "incorrect condition opcode %i", op );
+			return op;
+	}
+}
+
+
+/*
+=================
+VM_FindLocal
+
+search for specified local variable until end of function
+=================
+*/
+static qboolean VM_FindLocal( int32_t addr, const instruction_t *buf, const instruction_t *end, int32_t *back_addr ) {
+	int32_t curr_addr = *back_addr;
+	while ( buf < end ) {
+		if ( buf->op == OP_LOCAL ) {
+			if ( buf->value == addr ) {
+				return qtrue;
+			}
+			++buf; continue;
+		}
+		if ( ops[ buf->op ].flags & JUMP ) {
+			if ( buf->value < curr_addr ) {
+				curr_addr = buf->value;
+			}
+			++buf; continue;
+		}
+		if ( buf->op == OP_JUMP ) {
+			if ( buf->value && buf->value < curr_addr ) {
+				curr_addr = buf->value;
+			}
+			++buf; continue;
+		}
+		if ( buf->op == OP_PUSH && (buf+1)->op == OP_LEAVE ) {
+			break;
+		}
+		++buf;
+	}
+	*back_addr = curr_addr;
+	return qfalse;
+}
+
+
+/*
+=================
+VM_Fixup
+
+Do some corrections to fix known Q3LCC flaws
+=================
+*/
+static void VM_Fixup( instruction_t *buf, int instructionCount )
+{
+	int n;
+	instruction_t *i;
+
+	i = buf;
+	n = 0;
+
+	while ( n < instructionCount )
+	{
+		if ( i->op == OP_LOCAL ) {
+
+			// skip useless sequences
+			if ( (i+1)->op == OP_LOCAL && (i+0)->value == (i+1)->value && (i+2)->op == OP_LOAD4 && (i+3)->op == OP_STORE4 ) {
+				VM_IgnoreInstructions( i, 4 );
+				i += 4; n += 4;
+				continue;
+			}
+
+			// [0]OP_LOCAL + [1]OP_CONST + [2]OP_CALL + [3]OP_STORE4
+			if ( (i+1)->op == OP_CONST && (i+2)->op == OP_CALL && (i+3)->op == OP_STORE4 && !(i+4)->jused ) {
+				// [4]OP_CONST|OP_LOCAL (dest) + [5]OP_LOCAL(temp) + [6]OP_LOAD4 + [7]OP_STORE4
+				if ( (i+4)->op == OP_CONST || (i+4)->op == OP_LOCAL ) {
+					if ( (i+5)->op == OP_LOCAL && (i+5)->value == (i+0)->value && (i+6)->op == OP_LOAD4 && (i+7)->op == OP_STORE4 ) {
+						int32_t back_addr = n;
+						int32_t curr_addr = n;
+						qboolean do_break = qfalse;
+
+						// make sure that address of (potentially) temporary variable is not referenced further in this function
+						if ( VM_FindLocal( i->value, i + 8, buf + instructionCount, &back_addr ) ) {
+							i++; n++;
+							continue;
+						}
+
+						// we have backward jumps in code then check for references before current position
+						while ( back_addr < curr_addr ) {
+							curr_addr = back_addr;
+							if ( VM_FindLocal( i->value, buf + back_addr, i, &back_addr ) ) {
+								do_break = qtrue;
+								break;
+							}
+						}
+						if ( do_break ) {
+							i++; n++;
+							continue;
+						}
+
+						(i+0)->op = (i+4)->op;
+						(i+0)->value = (i+4)->value;
+						VM_IgnoreInstructions( i + 4, 4 );
+						i += 8;
+						n += 8;
+						continue;
+					}
+				}
+			}
+		}
+
+		if ( i->op == OP_LEAVE && !i->endp ) {
+			if ( !(i+1)->jused && (i+1)->op == OP_CONST && (i+2)->op == OP_JUMP ) {
+				int v = (i+1)->value;
+				if ( buf[ v ].op == OP_PUSH && buf[ v+1 ].op == OP_LEAVE && buf[ v+1 ].endp ) {
+					VM_IgnoreInstructions( i + 1, 2 );
+					i += 3;
+					n += 3;
+					continue;
+				}
+			}
+		}
+
+		//n + 0: if ( cond ) goto label1;
+		//n + 2: goto label2;
+		//n + 3: label1:
+		// ...
+		//n + x: label2:
+		if ( ( ops[i->op].flags & (JUMP | FPU) ) == JUMP && !(i+1)->jused && (i+1)->op == OP_CONST && (i+2)->op == OP_JUMP ) {
+			if ( i->value == n + 3 && (i+1)->value >= n + 3 ) {
+				i->op = InvertCondition( i->op );
+				i->value = ( i + 1 )->value;
+				VM_IgnoreInstructions( i + 1, 2 );
+				i += 3;
+				n += 3;
+				continue;
+			}
+		}
+		i++;
+		n++;
+	}
+}
+
+
 /*
 =================
 VM_LoadInstructions
@@ -888,7 +1076,7 @@ const char *VM_LoadInstructions( const byte *code_pos, int codeLength, int instr
 	const byte *code_start, *code_end;
 	int i, n, op0, op1, opStack;
 	instruction_t *ci;
-	
+
 	code_start = code_pos; // for printing
 	code_end = code_pos + codeLength;
 
@@ -913,11 +1101,15 @@ const char *VM_LoadInstructions( const byte *code_pos, int codeLength, int instr
 		if ( n == 4 ) {
 			ci->value = LittleLong( *((int*)code_pos) );
 			code_pos += 4;
-		} else if ( n == 1 ) { 
+		} else if ( n == 1 ) {
 			ci->value = *((unsigned char*)code_pos);
 			code_pos += 1;
 		} else {
 			ci->value = 0;
+		}
+
+		if ( ops[ op0 ].flags & FPU ) {
+			ci->fpu = 1;
 		}
 
 		// setup jump value from previous const
@@ -930,6 +1122,26 @@ const char *VM_LoadInstructions( const byte *code_pos, int codeLength, int instr
 	}
 
 	return NULL;
+}
+
+
+static qboolean safe_address( instruction_t *ci, instruction_t *proc, int dataLength )
+{
+	if ( ci->op == OP_LOCAL ) {
+		// local address can't exceed programStack frame plus 256 bytes of passed arguments
+		if ( ci->value < 8 || ( proc && ci->value >= proc->value + 256 ) )
+			return qfalse;
+		return qtrue;
+	}
+
+	if ( ci->op == OP_CONST ) {
+		// constant address can't exceed data segment
+		if ( ci->value >= dataLength || ci->value < 0 )
+			return qfalse;
+		return qtrue;
+	}
+
+	return qfalse;
 }
 
 
@@ -947,9 +1159,12 @@ const char *VM_CheckInstructions( instruction_t *buf,
 								int dataLength )
 {
 	static char errBuf[ 128 ];
-	int i, n, v, op0, op1, opStack, pstack;
+	instruction_t *opStackPtr[ PROC_OPSTACK_SIZE ];
+	int i, m, n, v, op0, op1, opStack, pstack;
 	instruction_t *ci, *proc;
 	int startp, endp;
+	int safe_stores;
+	int unsafe_stores;
 
 	ci = buf;
 	opStack = 0;
@@ -958,19 +1173,23 @@ const char *VM_CheckInstructions( instruction_t *buf,
 	for ( i = 0; i < instructionCount; i++, ci++ ) {
 		opStack += ops[ ci->op ].stack;
 		if ( opStack < 0 ) {
-			sprintf( errBuf, "opStack underflow at %i", i ); 
+			sprintf( errBuf, "opStack underflow at %i", i );
 			return errBuf;
 		}
 		if ( opStack >= PROC_OPSTACK_SIZE * 4 ) {
-			sprintf( errBuf, "opStack overflow at %i", i ); 
+			sprintf( errBuf, "opStack overflow at %i", i );
 			return errBuf;
 		}
 	}
 
 	ci = buf;
 	pstack = 0;
+	opStack = 0;
+	safe_stores = 0;
+	unsafe_stores = 0;
 	op1 = OP_UNDEF;
 	proc = NULL;
+	Com_Memset( opStackPtr, 0, sizeof( opStackPtr ) );
 
 	startp = 0;
 	endp = instructionCount - 1;
@@ -980,26 +1199,52 @@ const char *VM_CheckInstructions( instruction_t *buf,
 	for ( i = 0; i < instructionCount; i++, ci++, op1 = op0 ) {
 		op0 = ci->op;
 
+		m = ops[ ci->op ].stack;
+		opStack += m;
+		if ( m >= 0 ) {
+			// do some FPU type promotion for more efficient loads
+			if ( ci->fpu && ci->op != OP_CVIF ) {
+				opStackPtr[ opStack / 4 ]->fpu = 1;
+			}
+			opStackPtr[ opStack >> 2 ] = ci;
+		} else {
+			if ( ci->fpu ) {
+				if ( m <= -8 ) {
+					opStackPtr[ opStack / 4 + 1 ]->fpu = 1;
+					opStackPtr[ opStack / 4 + 2 ]->fpu = 1;
+				} else {
+					opStackPtr[ opStack / 4 + 0 ]->fpu = 1;
+					opStackPtr[ opStack / 4 + 1 ]->fpu = 1;
+				}
+			} else {
+				if ( m <= -8 ) {
+					//
+				} else {
+					opStackPtr[ opStack / 4 + 0 ] = ci;
+				}
+			}
+		}
+
 		// function entry
 		if ( op0 == OP_ENTER ) {
-			// missing block end 
+			// missing block end
 			if ( proc || ( pstack && op1 != OP_LEAVE ) ) {
-				sprintf( errBuf, "missing proc end before %i", i ); 
+				sprintf( errBuf, "missing proc end before %i", i );
 				return errBuf;
 			}
 			if ( ci->opStack != 0 ) {
 				v = ci->opStack;
-				sprintf( errBuf, "bad entry opstack %i at %i", v, i ); 
+				sprintf( errBuf, "bad entry opstack %i at %i", v, i );
 				return errBuf;
 			}
 			v = ci->value;
 			if ( v < 0 || v >= PROGRAM_STACK_SIZE || (v & 3) ) {
-				sprintf( errBuf, "bad entry programStack %i at %i", v, i ); 
+				sprintf( errBuf, "bad entry programStack %i at %i", v, i );
 				return errBuf;
 			}
-			
+
 			pstack = ci->value;
-			
+
 			// mark jump target
 			ci->jused = 1;
 			proc = ci;
@@ -1008,13 +1253,14 @@ const char *VM_CheckInstructions( instruction_t *buf,
 			// locate endproc
 			for ( endp = 0, n = i+1 ; n < instructionCount; n++ ) {
 				if ( buf[n].op == OP_PUSH && buf[n+1].op == OP_LEAVE ) {
+					buf[n+1].endp = 1;
 					endp = n;
 					break;
 				}
 			}
 
 			if ( endp == 0 ) {
-				sprintf( errBuf, "missing end proc for %i", i ); 
+				sprintf( errBuf, "missing end proc for %i", i );
 				return errBuf;
 			}
 
@@ -1022,7 +1268,7 @@ const char *VM_CheckInstructions( instruction_t *buf,
 		}
 
 		// proc opstack will carry max.possible opstack value
-		if ( proc && ci->opStack > proc->opStack ) 
+		if ( proc && ci->opStack > proc->opStack )
 			proc->opStack = ci->opStack;
 
 		// function return
@@ -1030,7 +1276,7 @@ const char *VM_CheckInstructions( instruction_t *buf,
 			// bad return programStack
 			if ( pstack != ci->value ) {
 				v = ci->value;
-				sprintf( errBuf, "bad programStack %i at %i", v, i ); 
+				sprintf( errBuf, "bad programStack %i at %i", v, i );
 				return errBuf;
 			}
 			// bad opStack before return
@@ -1041,12 +1287,12 @@ const char *VM_CheckInstructions( instruction_t *buf,
 			}
 			v = ci->value;
 			if ( v < 0 || v >= PROGRAM_STACK_SIZE || (v & 3) ) {
-				sprintf( errBuf, "bad return programStack %i at %i", v, i ); 
+				sprintf( errBuf, "bad return programStack %i at %i", v, i );
 				return errBuf;
 			}
 			if ( op1 == OP_PUSH ) {
 				if ( proc == NULL ) {
-					sprintf( errBuf, "unexpected proc end at %i", i ); 
+					sprintf( errBuf, "unexpected proc end at %i", i );
 					return errBuf;
 				}
 				proc = NULL;
@@ -1059,9 +1305,9 @@ const char *VM_CheckInstructions( instruction_t *buf,
 		// conditional jumps
 		if ( ops[ ci->op ].flags & JUMP ) {
 			v = ci->value;
-			// conditional jumps should have opStack == 8
-			if ( ci->opStack != 8 ) {
-				sprintf( errBuf, "bad jump opStack %i at %i", ci->opStack, i ); 
+			// conditional jumps should have opStack >= 8
+			if ( ci->opStack < 8 ) {
+				sprintf( errBuf, "bad jump opStack %i at %i", ci->opStack, i );
 				return errBuf;
 			}
 			//if ( v >= header->instructionCount ) {
@@ -1070,9 +1316,9 @@ const char *VM_CheckInstructions( instruction_t *buf,
 				sprintf( errBuf, "jump target %i at %i is out of range (%i,%i)", v, i-1, startp, endp );
 				return errBuf;
 			}
-			if ( buf[v].opStack != 0 ) {
+			if ( buf[v].opStack != ci->opStack - 8 ) {
 				n = buf[v].opStack;
-				sprintf( errBuf, "jump target %i has bad opStack %i", v, n ); 
+				sprintf( errBuf, "jump target %i has bad opStack %i", v, n );
 				return errBuf;
 			}
 			// mark jump target
@@ -1082,9 +1328,9 @@ const char *VM_CheckInstructions( instruction_t *buf,
 
 		// unconditional jumps
 		if ( op0 == OP_JUMP ) {
-			// jumps should have opStack == 4
-			if ( ci->opStack != 4 ) {
-				sprintf( errBuf, "bad jump opStack %i at %i", ci->opStack, i ); 
+			// jumps should have opStack >= 4
+			if ( ci->opStack < 4 ) {
+				sprintf( errBuf, "bad jump opStack %i at %i", ci->opStack, i );
 				return errBuf;
 			}
 			if ( op1 == OP_CONST ) {
@@ -1094,18 +1340,18 @@ const char *VM_CheckInstructions( instruction_t *buf,
 					sprintf( errBuf, "jump target %i at %i is out of range (%i,%i)", v, i-1, startp, endp );
 					return errBuf;
 				}
-				if ( buf[v].opStack != 0 ) {
+				if ( buf[v].opStack != ci->opStack - 4 ) {
 					n = buf[v].opStack;
-					sprintf( errBuf, "jump target %i has bad opStack %i", v, n ); 
+					sprintf( errBuf, "jump target %i has bad opStack %i", v, n );
 					return errBuf;
 				}
 				if ( buf[v].op == OP_ENTER ) {
 					n = buf[v].op;
-					sprintf( errBuf, "jump target %i has bad opcode %i", v, n ); 
+					sprintf( errBuf, "jump target %i has bad opcode %s", v, opname[ n ] );
 					return errBuf;
 				}
 				if ( v == (i-1) ) {
-					sprintf( errBuf, "self loop at %i", v ); 
+					sprintf( errBuf, "self loop at %i", v );
 					return errBuf;
 				}
 				// mark jump target
@@ -1121,7 +1367,7 @@ const char *VM_CheckInstructions( instruction_t *buf,
 
 		if ( op0 == OP_CALL ) {
 			if ( ci->opStack < 4 ) {
-				sprintf( errBuf, "bad call opStack at %i", i ); 
+				sprintf( errBuf, "bad call opStack at %i", i );
 				return errBuf;
 			}
 			if ( op1 == OP_CONST ) {
@@ -1129,16 +1375,16 @@ const char *VM_CheckInstructions( instruction_t *buf,
 				// analyse only local function calls
 				if ( v >= 0 ) {
 					if ( v >= instructionCount ) {
-						sprintf( errBuf, "call target %i is out of range", v ); 
+						sprintf( errBuf, "call target %i is out of range", v );
 						return errBuf;
 					}
 					if ( buf[v].op != OP_ENTER ) {
 						n = buf[v].op;
-						sprintf( errBuf, "call target %i has bad opcode %i", v, n );
+						sprintf( errBuf, "call target %i has bad opcode %s", v, opname[ n ] );
 						return errBuf;
 					}
 					if ( v == 0 ) {
-						sprintf( errBuf, "explicit vmMain call inside VM" );
+						sprintf( errBuf, "explicit vmMain call inside VM at %i", i );
 						return errBuf;
 					}
 					// mark jump target
@@ -1150,6 +1396,10 @@ const char *VM_CheckInstructions( instruction_t *buf,
 
 		if ( ci->op == OP_ARG ) {
 			v = ci->value & 255;
+			if ( proc == NULL ) {
+				sprintf( errBuf, "missing proc frame for %s %i at %i", opname[ ci->op ], v, i );
+				return errBuf;
+			}
 			// argument can't exceed programStack frame
 			if ( v < 8 || v > pstack - 4 || (v & 3) ) {
 				sprintf( errBuf, "bad argument address %i at %i", v, i );
@@ -1161,52 +1411,96 @@ const char *VM_CheckInstructions( instruction_t *buf,
 		if ( ci->op == OP_LOCAL ) {
 			v = ci->value;
 			if ( proc == NULL ) {
-				sprintf( errBuf, "missing proc frame for local %i at %i", v, i );
+				sprintf( errBuf, "missing proc frame for %s %i at %i", opname[ ci->op ], v, i );
 				return errBuf;
 			}
-			if ( (ci+1)->op == OP_LOAD1 || (ci+1)->op == OP_LOAD2 || (ci+1)->op == OP_LOAD4 || (ci+1)->op == OP_ARG ) {
-				// FIXME: alloc 256 bytes of programStack in VM_CallCompiled()?
-				if ( v < 8 || v >= proc->value + 256 ) {
-					sprintf( errBuf, "bad local address %i at %i", v, i );
+			if ( (ci+1)->op == OP_LOAD4 || (ci+1)->op == OP_LOAD2 || (ci+1)->op == OP_LOAD1 ) {
+				if ( !safe_address( ci, proc, dataLength ) ) {
+					sprintf( errBuf, "bad %s address %i at %i", opname[ ci->op ], v, i );
 					return errBuf;
 				}
 			}
+			continue;
 		}
 
 		if ( ci->op == OP_LOAD4 && op1 == OP_CONST ) {
 			v = (ci-1)->value;
 			if ( v < 0 || v > dataLength - 4 ) {
-				sprintf( errBuf, "bad load4 address %i at %i", v, i - 1 );
+				sprintf( errBuf, "bad %s address %i at %i", opname[ ci->op ], v, i - 1 );
 				return errBuf;
 			}
+			continue;
 		}
 
 		if ( ci->op == OP_LOAD2 && op1 == OP_CONST ) {
 			v = (ci-1)->value;
 			if ( v < 0 || v > dataLength - 2 ) {
-				sprintf( errBuf, "bad load2 address %i at %i", v, i - 1 );
+				sprintf( errBuf, "bad %s address %i at %i", opname[ ci->op ], v, i - 1 );
 				return errBuf;
 			}
+			continue;
 		}
 
 		if ( ci->op == OP_LOAD1 && op1 == OP_CONST ) {
 			v =  (ci-1)->value;
 			if ( v < 0 || v > dataLength - 1 ) {
-				sprintf( errBuf, "bad load1 address %i at %i", v, i - 1 );
+				sprintf( errBuf, "bad %s address %i at %i", opname[ ci->op ], v, i - 1 );
 				return errBuf;
 			}
+			continue;
+		}
+
+		if ( ci->op == OP_STORE4 || ci->op == OP_STORE2 || ci->op == OP_STORE1 ) {
+			instruction_t *x = opStackPtr[ opStack / 4 + 1 ];
+			if ( x->op == OP_CONST || x->op == OP_LOCAL ) {
+				if ( safe_address( x, proc, dataLength ) ) {
+					ci->safe = 1;
+					safe_stores++;
+					continue;
+				} else {
+					sprintf( errBuf, "bad %s address %i at %i", opname[ ci->op ], x->value, (int)(x - buf) );
+					return errBuf;
+				}
+			}
+			unsafe_stores++;
+			continue;
 		}
 
 		if ( ci->op == OP_BLOCK_COPY ) {
+			instruction_t *src = opStackPtr[ opStack / 4 + 2 ];
+			instruction_t *dst = opStackPtr[ opStack / 4 + 1 ];
+			int safe = 0;
 			v = ci->value;
 			if ( v >= dataLength ) {
 				sprintf( errBuf, "bad count %i for block copy at %i", v, i - 1 );
 				return errBuf;
 			}
+			if ( src->op == OP_LOCAL || src->op == OP_CONST ) {
+				if ( !safe_address( src, proc, dataLength ) ) {
+					sprintf( errBuf, "bad src for block copy at %i", (int)(dst - buf) );
+					return errBuf;
+				}
+				src->safe = 1;
+				safe++;
+			}
+			if ( dst->op == OP_LOCAL || dst->op == OP_CONST ) {
+				if ( !safe_address( dst, proc, dataLength ) ) {
+					sprintf( errBuf, "bad dst for block copy at %i", (int)(dst - buf) );
+					return errBuf;
+				}
+				dst->safe = 1;
+				safe++;
+			}
+			if ( safe == 2 ) {
+				ci->safe = 1;
+			}
 		}
-
 //		op1 = op0;
 //		ci++;
+	}
+
+	if ( ( safe_stores + unsafe_stores ) > 0 ) {
+		Com_DPrintf( "%s: safe stores - %i (%i%%)\n", __func__, safe_stores, safe_stores * 100 / ( safe_stores + unsafe_stores ) );
 	}
 
 	if ( op1 != OP_UNDEF && op1 != OP_LEAVE ) {
@@ -1221,12 +1515,12 @@ const char *VM_CheckInstructions( instruction_t *buf,
 			n = *(int *)(jumpTableTargets + ( i * sizeof( int ) ) );
 			if ( n < 0 || n >= instructionCount ) {
 				Com_Printf( S_COLOR_YELLOW "jump target %i set on instruction %i that is out of range [0..%i]",
-					i, n, instructionCount - 1 ); 
+					i, n, instructionCount - 1 );
 				break;
 			}
 			if ( buf[n].opStack != 0 ) {
 				Com_Printf( S_COLOR_YELLOW "jump target %i set on instruction %i (%s) with bad opStack %i\n",
-					i, n, opname[ buf[n].op ], buf[n].opStack ); 
+					i, n, opname[ buf[n].op ], buf[n].opStack );
 				break;
 			}
 		}
@@ -1261,6 +1555,8 @@ __noJTS:
 		}
 	}
 
+	VM_Fixup( buf, instructionCount );
+
 	return NULL;
 }
 
@@ -1282,32 +1578,28 @@ void VM_ReplaceInstructions( vm_t *vm, instruction_t *buf ) {
 				ip++;
 				ip->op = OP_CONST;	ip->value = 110372; ip++;
 				ip->op = OP_JUMP;	ip->value = 0; ip++;
-				ip->op = OP_IGNORE; ip->value = 0; ip++;
+				ip->op = OP_IGNORE; ip->value = 0;
 			}
 			if ( buf[4358].op == OP_LOCAL && buf[4358].value == 308 && buf[4359].op == OP_CONST && !buf[4359].value ) {
 				buf[4359].value++;
 			}
-		} 
-		else
+		} else
 		if ( vm->crc32sum == 0xF0F1AE90 && vm->instructionCount == 123552 && vm->exactDataLength == 2007520 ) {
 			ip = buf + 110177;
 			if ( ip->op == OP_ENTER && (ip+183)->op == OP_LEAVE && ip->value == (ip+183)->value ) {
 				ip++;
 				ip->op = OP_CONST;	ip->value = 110359; ip++;
 				ip->op = OP_JUMP;	ip->value = 0; ip++;
-				ip->op = OP_IGNORE; ip->value = 0; ip++;
+				ip->op = OP_IGNORE; ip->value = 0;
 			}
 			if ( buf[4358].op == OP_LOCAL && buf[4358].value == 308 && buf[4359].op == OP_CONST && !buf[4359].value ) {
 				buf[4359].value++;
 			}
-		}
+		} else
 		if ( vm->crc32sum == 0x051D4668 && vm->instructionCount == 267812 && vm->exactDataLength == 38064376 ) {
-			int i;
 			ip = buf + 235;
 			if ( ip->value == 70943 ) {
-				for ( i = 0; i < 8; i++ ) {
-					ip[i].op = OP_IGNORE;
-				}
+				VM_IgnoreInstructions( ip, 8 );
 			}
 		}
 	}
@@ -1334,16 +1626,9 @@ void VM_ReplaceInstructions( vm_t *vm, instruction_t *buf ) {
 		if ( vm->crc32sum == 0x6E51985F && vm->instructionCount == 125942 && vm->exactDataLength == 1334788 ) {
 			ip = buf + 60150;
 			if ( ip[0].op == OP_LOCAL && ip[0].value == 28 && ip[1].op == OP_LOAD4 && ip[2].op == OP_ARG && ip[3].value == 124325 ) {
-				int i;
-				for ( i = 0; i < 6; i++ ) {
-					ip[i].op = OP_IGNORE;
-					ip[i].jused = 0;
-				}
+				VM_IgnoreInstructions( ip, 6 );
 				ip = buf + 60438;
-				for ( i = 0; i < 6; i++ ) {
-					ip[i].op = OP_IGNORE;
-					ip[i].jused = 0;
-				}
+				VM_IgnoreInstructions( ip, 6 );
 			}
 		}
 	}
@@ -1366,7 +1651,7 @@ vm_t *VM_Restart( vm_t *vm ) {
 		syscall_t		systemCall;
 		dllSyscall_t	dllSyscall;
 		vmIndex_t		index;
-				
+
 		index = vm->index;
 		systemCall = vm->systemCall;
 		dllSyscall = vm->dllSyscall;
@@ -1393,6 +1678,52 @@ vm_t *VM_Restart( vm_t *vm ) {
 
 
 /*
+=================
+Sys_LoadDll
+
+Used to load a development dll instead of a virtual machine
+
+TTimo: added some verbosity in debug
+=================
+*/
+static void * QDECL VM_LoadDll( const char *name, dllSyscall_t *entryPoint, dllSyscall_t systemcalls ) {
+
+	const char	*gamedir = Cvar_VariableString( "fs_game" );
+	char		filename[ MAX_QPATH ];
+	void		*libHandle;
+	dllEntry_t	dllEntry;
+
+	if ( !*gamedir ) {
+		gamedir = Cvar_VariableString( "fs_basegame" );
+	}
+
+	Com_sprintf( filename, sizeof( filename ), "%s%c%s" ARCH_STRING DLL_EXT, gamedir, PATH_SEP, name );
+
+	libHandle = FS_LoadLibrary( filename );
+
+	if ( !libHandle ) {
+		Com_Printf( "VM_LoadDLL '%s' failed\n", filename );
+		return NULL;
+	}
+
+	Com_Printf( "VM_LoadDLL '%s' ok\n", filename );
+
+	dllEntry = /* ( dllEntry_t ) */ Sys_LoadFunction( libHandle, "dllEntry" );
+	*entryPoint = /* ( dllSyscall_t ) */ Sys_LoadFunction( libHandle, "vmMain" );
+	if ( !*entryPoint || !dllEntry ) {
+		Sys_UnloadLibrary( libHandle );
+		return NULL;
+	}
+
+	Com_Printf( "VM_LoadDll(%s) found **vmMain** at %p\n", name, *entryPoint );
+	dllEntry( systemcalls );
+	Com_Printf( "VM_LoadDll(%s) succeeded!\n", name );
+
+	return libHandle;
+}
+
+
+/*
 ================
 VM_Create
 
@@ -1411,7 +1742,7 @@ vm_t *VM_Create( vmIndex_t index, syscall_t systemCalls, dllSyscall_t dllSyscall
 	}
 
 	if ( (unsigned)index >= VM_COUNT ) {
-		Com_Error( ERR_DROP, "VM_Create: bad vm index %i", index );	
+		Com_Error( ERR_DROP, "VM_Create: bad vm index %i", index );
 	}
 
 	remaining = Hunk_MemoryRemaining();
@@ -1445,7 +1776,7 @@ vm_t *VM_Create( vmIndex_t index, syscall_t systemCalls, dllSyscall_t dllSyscall
 	if ( interpret == VMI_NATIVE ) {
 		// try to load as a system dll
 		Com_Printf( "Loading dll file %s.\n", name );
-		vm->dllHandle = Sys_LoadDll( name, &vm->entryPoint, dllSyscalls );
+		vm->dllHandle = VM_LoadDll( name, &vm->entryPoint, dllSyscalls );
 		if ( vm->dllHandle ) {
 			vm->privateFlag = 0; // allow reading private cvars
 			vm->dataAlloc = ~0U;
@@ -1478,8 +1809,8 @@ vm_t *VM_Create( vmIndex_t index, syscall_t systemCalls, dllSyscall_t dllSyscall
 	vm->compiled = qfalse;
 
 #ifdef NO_VM_COMPILED
-	if(interpret >= VMI_COMPILED) {
-		Com_Printf("Architecture doesn't have a bytecode compiler, using interpreter\n");
+	if ( interpret >= VMI_COMPILED ) {
+		Com_Printf( "Architecture doesn't have a bytecode compiler, using interpreter\n" );
 		interpret = VMI_BYTECODE;
 	}
 #else
@@ -1534,7 +1865,7 @@ void VM_Free( vm_t *vm ) {
 		vm->destroy( vm );
 
 	if ( vm->dllHandle )
-		Sys_UnloadDll( vm->dllHandle );
+		Sys_UnloadLibrary( vm->dllHandle );
 
 #if 0	// now automatically freed by hunk
 	if ( vm->codeBase.ptr ) {
@@ -1603,11 +1934,11 @@ intptr_t QDECL VM_Call( vm_t *vm, int nargs, int callnum, ... )
 		Com_Error( ERR_FATAL, "VM_Call with NULL vm" );
 	}
 
+#ifdef DEBUG
 	if ( vm_debugLevel ) {
 	  Com_Printf( "VM_Call( %d )\n", callnum );
 	}
 
-#ifdef DEBUG
 	if ( nargs >= MAX_VMMAIN_CALL_ARGS ) {
 		Com_Error( ERR_DROP, "VM_Call: nargs >= MAX_VMMAIN_CALL_ARGS" );
 	}
@@ -1615,7 +1946,7 @@ intptr_t QDECL VM_Call( vm_t *vm, int nargs, int callnum, ... )
 
 	++vm->callLevel;
 	// if we have a dll loaded, call it directly
-	if ( vm->entryPoint ) 
+	if ( vm->entryPoint )
 	{
 		//rcg010207 -  see dissertation at top of VM_DllSyscall() in this file.
 		int args[MAX_VMMAIN_CALL_ARGS-1];
@@ -1626,7 +1957,7 @@ intptr_t QDECL VM_Call( vm_t *vm, int nargs, int callnum, ... )
 		}
 		va_end(ap);
 
-		// add more agruments if you're changed MAX_VMMAIN_CALL_ARGS:
+		// add more arguments if you're changed MAX_VMMAIN_CALL_ARGS:
 		r = vm->entryPoint( callnum, args[0], args[1], args[2] );
 	} else {
 #if id386 && !defined __clang__ // calling convention doesn't need conversion in some cases
@@ -1683,7 +2014,7 @@ static int QDECL VM_ProfileSort( const void *a, const void *b ) {
 VM_NameToVM
 ==============
 */
-vm_t *VM_NameToVM( const char *name ) 
+static vm_t *VM_NameToVM( const char *name )
 {
 	vmIndex_t index;
 
@@ -1713,7 +2044,7 @@ VM_VmProfile_f
 
 ==============
 */
-void VM_VmProfile_f( void ) {
+static void VM_VmProfile_f( void ) {
 	vm_t		*vm;
 	vmSymbol_t	**sorted, *sym;
 	int			i;
@@ -1764,7 +2095,7 @@ void VM_VmProfile_f( void ) {
 VM_VmInfo_f
 ==============
 */
-void VM_VmInfo_f( void ) {
+static void VM_VmInfo_f( void ) {
 	vm_t	*vm;
 	int		i;
 

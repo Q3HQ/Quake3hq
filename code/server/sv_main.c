@@ -34,6 +34,7 @@ cvar_t	*sv_privatePassword;	// password for the privateClient slots
 cvar_t	*sv_allowDownload;
 cvar_t	*sv_maxclients;
 cvar_t	*sv_maxclientsPerIP;
+cvar_t	*sv_clientTLD;
 
 cvar_t	*sv_privateClients;		// number of clients reserved for password
 cvar_t	*sv_hostname;
@@ -281,7 +282,7 @@ static void SV_MasterHeartbeat( const char *message )
 				else
 					Com_Printf( "%s has no IPv4 address.\n", sv_master[i]->string );
 			}
-			
+#ifdef USE_IPV6
 			if(netenabled & NET_ENABLEV6)
 			{
 				Com_Printf("Resolving %s (IPv6)\n", sv_master[i]->string);
@@ -298,6 +299,7 @@ static void SV_MasterHeartbeat( const char *message )
 				else
 					Com_Printf( "%s has no IPv6 address.\n", sv_master[i]->string );
 			}
+#endif
 		}
 
 		if( adr[i][0].type == NA_BAD && adr[i][1].type == NA_BAD )
@@ -355,7 +357,7 @@ CONNECTIONLESS COMMANDS
 
 static leakyBucket_t buckets[ MAX_BUCKETS ];
 static leakyBucket_t *bucketHashes[ MAX_HASHES ];
-leakyBucket_t outboundLeakyBucket;
+static rateLimit_t outboundRateLimit;
 
 /*
 ================
@@ -370,7 +372,9 @@ static int SVC_HashForAddress( const netadr_t *address ) {
 
 	switch ( address->type ) {
 		case NA_IP:  ip = address->ipv._4; size = 4;  break;
+#ifdef USE_IPV6
 		case NA_IP6: ip = address->ipv._6; size = 16; break;
+#endif
 		default: break;
 	}
 
@@ -437,7 +441,7 @@ static leakyBucket_t *SVC_BucketForAddress( const netadr_t *address, int burst, 
 					return bucket;
 				}
 				break;
-
+#ifdef USE_IPV6
 			case NA_IP6:
 				if ( memcmp( bucket->ipv._6, address->ipv._6, 16 ) == 0 ) {
 					if ( n > 8 ) {
@@ -446,7 +450,7 @@ static leakyBucket_t *SVC_BucketForAddress( const netadr_t *address, int burst, 
 					return bucket;
 				}
 				break;
-
+#endif
 			default:
 				return &dummy;
 		}
@@ -458,10 +462,10 @@ static leakyBucket_t *SVC_BucketForAddress( const netadr_t *address, int burst, 
 		if ( start >= MAX_BUCKETS )
 			start = 0;
 		bucket = &buckets[ start++ ];
-		interval = now - bucket->lastTime;
+		interval = now - bucket->rate.lastTime;
 
 		// Reclaim expired buckets
-		if ( bucket->type != NA_BAD && (unsigned)interval > ( bucket->burst * period ) ) {
+		if ( bucket->type != NA_BAD && (unsigned)interval > ( bucket->rate.burst * period ) ) {
 			if ( bucket->prev != NULL ) {
 				bucket->prev->next = bucket->next;
 			} else {
@@ -479,13 +483,15 @@ static leakyBucket_t *SVC_BucketForAddress( const netadr_t *address, int burst, 
 			bucket->type = address->type;
 			switch ( address->type ) {
 				case NA_IP:  Com_Memcpy( bucket->ipv._4, address->ipv._4, 4 );  break;
+#ifdef USE_IPV6
 				case NA_IP6: Com_Memcpy( bucket->ipv._6, address->ipv._6, 16 ); break;
+#endif
 				default: break;
 			}
 
-			bucket->lastTime = now;
+			bucket->rate.lastTime = now;
+			bucket->rate.burst = 0;
 			bucket->hash = hash;
-			bucket->burst = 0;
 			bucket->toxic = 0;
 
 			// Add to the head of the relevant hash chain
@@ -511,25 +517,23 @@ static leakyBucket_t *SVC_BucketForAddress( const netadr_t *address, int burst, 
 SVC_RateLimit
 ================
 */
-qboolean SVC_RateLimit( leakyBucket_t *bucket, int burst, int period ) {
-	if ( bucket != NULL ) {
-		int now = Sys_Milliseconds();
-		int interval = now - bucket->lastTime;
-		int expired = interval / period;
-		int expiredRemainder = interval % period;
+qboolean SVC_RateLimit( rateLimit_t *bucket, int burst, int period ) {
+	int now = Sys_Milliseconds();
+	int interval = now - bucket->lastTime;
+	int expired = interval / period;
+	int expiredRemainder = interval % period;
 
-		if ( expired > bucket->burst || interval < 0 ) {
-			bucket->burst = 0;
-			bucket->lastTime = now;
-		} else {
-			bucket->burst -= expired;
-			bucket->lastTime = now - expiredRemainder;
-		}
+	if ( expired > bucket->burst || interval < 0 ) {
+		bucket->burst = 0;
+		bucket->lastTime = now;
+	} else {
+		bucket->burst -= expired;
+		bucket->lastTime = now - expiredRemainder;
+	}
 
-		if ( bucket->burst < burst ) {
-			bucket->burst++;
-			return qfalse;
-		}
+	if ( bucket->burst < burst ) {
+		bucket->burst++;
+		return qfalse;
 	}
 
 	return qtrue;
@@ -545,8 +549,8 @@ static void SVC_RateDrop( leakyBucket_t *bucket, int burst ) {
 	if ( bucket != NULL ) {
 		if ( bucket->toxic < 10000 )
 			++bucket->toxic;
-		bucket->burst = burst * bucket->toxic;
-		bucket->lastTime = Sys_Milliseconds();
+		bucket->rate.burst = burst * bucket->toxic;
+		bucket->rate.lastTime = Sys_Milliseconds();
 	}
 }
 
@@ -558,8 +562,8 @@ SVC_RateRestoreBurst
 */
 static void SVC_RateRestoreBurst( leakyBucket_t *bucket ) {
 	if ( bucket != NULL ) {
-		if ( bucket->burst > 0 ) {
-			bucket->burst--;
+		if ( bucket->rate.burst > 0 ) {
+			bucket->rate.burst--;
 		}
 	}
 }
@@ -589,7 +593,7 @@ Rate limit for a particular address
 qboolean SVC_RateLimitAddress( const netadr_t *from, int burst, int period ) {
 	leakyBucket_t *bucket = SVC_BucketForAddress( from, burst, period );
 
-	return SVC_RateLimit( bucket, burst, period );
+	return bucket ? SVC_RateLimit( &bucket->rate, burst, period ) : qtrue;
 }
 
 
@@ -671,7 +675,7 @@ static void SVC_Status( const netadr_t *from ) {
 
 	// Allow getstatus to be DoSed relatively easily, but prevent
 	// excess outbound bandwidth usage when being flooded inbound
-	if ( SVC_RateLimit( &outboundLeakyBucket, 10, 100 ) ) {
+	if ( SVC_RateLimit( &outboundRateLimit, 10, 100 ) ) {
 		Com_DPrintf( "SVC_Status: rate limit exceeded, dropping request\n" );
 		return;
 	}
@@ -741,7 +745,7 @@ static void SVC_Info( const netadr_t *from ) {
 
 	// Allow getinfo to be DoSed relatively easily, but prevent
 	// excess outbound bandwidth usage when being flooded inbound
-	if ( SVC_RateLimit( &outboundLeakyBucket, 10, 100 ) ) {
+	if ( SVC_RateLimit( &outboundRateLimit, 10, 100 ) ) {
 		Com_DPrintf( "SVC_Info: rate limit exceeded, dropping request\n" );
 		return;
 	}
@@ -772,7 +776,7 @@ static void SVC_Info( const netadr_t *from ) {
 	// to prevent timed spoofed reply packets that add ghost servers
 	Info_SetValueForKey( infostring, "challenge", Cmd_Argv(1) );
 
-	Info_SetValueForKey( infostring, "protocol", va("%i", PROTOCOL_VERSION) );
+	Info_SetValueForKey( infostring, "protocol", com_protocol->string );
 	Info_SetValueForKey( infostring, "hostname", sv_hostname->string );
 	Info_SetValueForKey( infostring, "mapname", sv_mapname->string );
 	Info_SetValueForKey( infostring, "clients", va("%i", count) );
@@ -817,7 +821,7 @@ Redirect all printfs
 ===============
 */
 static void SVC_RemoteCommand( const netadr_t *from ) {
-	static leakyBucket_t bucket;
+	static rateLimit_t bucket;
 	qboolean	valid;
 	// TTimo - scaled down to accumulate, but not overflow anything network wise, print wise etc.
 	// (OOB messages are the bottleneck here)
@@ -1427,9 +1431,11 @@ int SV_RateMsec( const client_t *client )
 
 	messageSize = client->netchan.lastSentSize;
 
+#ifdef USE_IPV6
 	if ( client->netchan.remoteAddress.type == NA_IP6 )
 		messageSize += UDPIP6_HEADER_SIZE;
 	else
+#endif
 		messageSize += UDPIP_HEADER_SIZE;
 		
 	rateMsec = messageSize * 1000 / ((int) (client->rate * com_timescale->value));

@@ -7,11 +7,7 @@
 //
 // Generated from the TEXTINCLUDE 2 resource.
 //
-#ifndef __MINGW32__
-#include "winres.h"
-#else
 #include <winresrc.h>
-#endif
 
 /////////////////////////////////////////////////////////////////////////////
 #undef APSTUDIO_READONLY_SYMBOLS
@@ -82,7 +78,7 @@ END
 // Applicatioin manifest
 //
 #ifndef __MINGW32__
-2 RT_MANIFEST "q3.manifest"
+1 RT_MANIFEST "q3.manifest"
 #else
-2 RT_MANIFEST "code/win32/q3.manifest"
+1 RT_MANIFEST "code/win32/q3.manifest"
 #endif

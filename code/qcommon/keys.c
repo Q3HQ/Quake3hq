@@ -20,7 +20,9 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 ===========================================================================
 */
 
-#include "../client/client.h"
+#include "../qcommon/q_shared.h"
+#include "../qcommon/qcommon.h"
+#include "../client/keys.h"
 
 int		 anykeydown;
 qkey_t	 keys[MAX_KEYS];
@@ -71,7 +73,7 @@ static const keyname_t keynames[] =
 	{"+", K_PLUS},
 	{",", K_COMMA},
 	{"-", K_MINUS},
-	{".", K_DOT}, 
+	{".", K_DOT},
 	{"/", K_SLASH},
 	{"SEMICOLON", K_SEMICOLON},	// because a raw semicolon separates commands
 	{"=", K_EQUAL},
@@ -93,7 +95,7 @@ static const keyname_t keynames[] =
 	{"COMMAND", K_COMMAND},
 
 	{"CAPSLOCK", K_CAPSLOCK},
-	
+
 	{"F1", K_F1},
 	{"F2", K_F2},
 	{"F3", K_F3},
@@ -142,6 +144,22 @@ static const keyname_t keynames[] =
 	{"JOY14", K_JOY14},
 	{"JOY15", K_JOY15},
 	{"JOY16", K_JOY16},
+	{"JOY17", K_JOY17},
+	{"JOY18", K_JOY18},
+	{"JOY19", K_JOY19},
+	{"JOY20", K_JOY20},
+	{"JOY21", K_JOY21},
+	{"JOY22", K_JOY22},
+	{"JOY23", K_JOY23},
+	{"JOY24", K_JOY24},
+	{"JOY25", K_JOY25},
+	{"JOY26", K_JOY26},
+	{"JOY27", K_JOY27},
+	{"JOY28", K_JOY28},
+	{"JOY29", K_JOY29},
+	{"JOY30", K_JOY30},
+	{"JOY31", K_JOY31},
+	{"JOY32", K_JOY32},
 
 	{"AUX1", K_AUX1},
 	{"AUX2", K_AUX2},
@@ -151,6 +169,14 @@ static const keyname_t keynames[] =
 	{"AUX6", K_AUX6},
 	{"AUX7", K_AUX7},
 	{"AUX8", K_AUX8},
+	{"AUX9", K_AUX9},
+	{"AUX10", K_AUX10},
+	{"AUX11", K_AUX11},
+	{"AUX12", K_AUX12},
+	{"AUX13", K_AUX13},
+	{"AUX14", K_AUX14},
+	{"AUX15", K_AUX15},
+	{"AUX16", K_AUX16},
 
 	{"KP_HOME",			K_KP_HOME },
 	{"KP_UPARROW",		K_KP_UPARROW },
@@ -168,7 +194,7 @@ static const keyname_t keynames[] =
 	{"KP_MINUS",		K_KP_MINUS },
 	{"KP_PLUS",			K_KP_PLUS },
 	{"KP_NUMLOCK",		K_KP_NUMLOCK },
-	{"KP_STAR",			K_KP_STAR },
+	//{"KP_STAR",			K_KP_STAR },
 	{"KP_EQUALS",		K_KP_EQUALS },
 
 	{"PAUSE", K_PAUSE},
@@ -186,6 +212,33 @@ static const keyname_t keynames[] =
 	{"EURO", K_EURO},
 	{"UNDO", K_UNDO},
 
+	{"PAD0_A", K_PAD0_A },
+	{"PAD0_B", K_PAD0_B },
+	{"PAD0_X", K_PAD0_X },
+	{"PAD0_Y", K_PAD0_Y },
+	{"PAD0_BACK", K_PAD0_BACK },
+	{"PAD0_GUIDE", K_PAD0_GUIDE },
+	{"PAD0_START", K_PAD0_START },
+	{"PAD0_LEFTSTICK_CLICK", K_PAD0_LEFTSTICK_CLICK },
+	{"PAD0_RIGHTSTICK_CLICK", K_PAD0_RIGHTSTICK_CLICK },
+	{"PAD0_LEFTSHOULDER", K_PAD0_LEFTSHOULDER },
+	{"PAD0_RIGHTSHOULDER", K_PAD0_RIGHTSHOULDER },
+	{"PAD0_DPAD_UP", K_PAD0_DPAD_UP },
+	{"PAD0_DPAD_DOWN", K_PAD0_DPAD_DOWN },
+	{"PAD0_DPAD_LEFT", K_PAD0_DPAD_LEFT },
+	{"PAD0_DPAD_RIGHT", K_PAD0_DPAD_RIGHT },
+
+	{"PAD0_LEFTSTICK_LEFT", K_PAD0_LEFTSTICK_LEFT },
+	{"PAD0_LEFTSTICK_RIGHT", K_PAD0_LEFTSTICK_RIGHT },
+	{"PAD0_LEFTSTICK_UP", K_PAD0_LEFTSTICK_UP },
+	{"PAD0_LEFTSTICK_DOWN", K_PAD0_LEFTSTICK_DOWN },
+	{"PAD0_RIGHTSTICK_LEFT", K_PAD0_RIGHTSTICK_LEFT },
+	{"PAD0_RIGHTSTICK_RIGHT", K_PAD0_RIGHTSTICK_RIGHT },
+	{"PAD0_RIGHTSTICK_UP", K_PAD0_RIGHTSTICK_UP },
+	{"PAD0_RIGHTSTICK_DOWN", K_PAD0_RIGHTSTICK_DOWN },
+	{"PAD0_LEFTTRIGGER", K_PAD0_LEFTTRIGGER },
+	{"PAD0_RIGHTTRIGGER", K_PAD0_RIGHTTRIGGER },
+
 	{NULL,0}
 };
 
@@ -195,7 +248,7 @@ static const keyname_t keynames[] =
 Key_SetOverstrikeMode
 ===================
 */
-qboolean Key_GetOverstrikeMode( void ) 
+qboolean Key_GetOverstrikeMode( void )
 {
 	return key_overstrikeMode;
 }
@@ -206,7 +259,7 @@ qboolean Key_GetOverstrikeMode( void )
 Key_SetOverstrikeMode
 ===================
 */
-void Key_SetOverstrikeMode( qboolean state ) 
+void Key_SetOverstrikeMode( qboolean state )
 {
 	key_overstrikeMode = state;
 }
@@ -217,54 +270,14 @@ void Key_SetOverstrikeMode( qboolean state )
 Key_IsDown
 ===================
 */
-qboolean Key_IsDown( int keynum ) 
+qboolean Key_IsDown( int keynum )
 {
-	if ( keynum < 0 || keynum >= MAX_KEYS ) 
+	if ( keynum < 0 || keynum >= MAX_KEYS )
 	{
 		return qfalse;
 	}
 
 	return keys[keynum].down;
-}
-
-
-/*
-===================
-Com_HexStrToInt
-===================
-*/
-static int CL_HexStrToInt( const char *str )
-{
-	if ( !str || !str[ 0 ] )
-		return -1;
-
-	// check for hex code
-	if( str[ 0 ] == '0' && str[ 1 ] == 'x' )
-	{
-		int i, n = 0, len = strlen( str );
-
-		for( i = 2; i < len; i++ )
-		{
-			char digit;
-
-			n *= 16;
-
-			digit = tolower( str[ i ] );
-
-			if( digit >= '0' && digit <= '9' )
-				digit -= '0';
-			else if( digit >= 'a' && digit <= 'f' )
-				digit = digit - 'a' + 10;
-			else
-				return -1;
-
-			n += digit;
-		}
-
-		return n;
-	}
-
-	return -1;
 }
 
 
@@ -276,14 +289,14 @@ Returns a key number to be used to index keys[] by looking at
 the given string.  Single ascii characters return themselves, while
 the K_* names are matched up.
 
-0x11 will be interpreted as raw hex, which will allow new controlers
+0x11 will be interpreted as raw hex, which will allow new controllers
 
 to be configured even if they don't have defined names.
 ===================
 */
-static int Key_StringToKeynum( const char *str ) {
+int Key_StringToKeynum( const char *str ) {
 	const keyname_t	*kn;
-	
+
 	if ( !str || str[0] == '\0' ) {
 		return -1;
 	}
@@ -293,8 +306,8 @@ static int Key_StringToKeynum( const char *str ) {
 
 	// check for hex code
 	if ( strlen( str ) == 4 ) {
-		int n = CL_HexStrToInt( str );
-		
+		int n = Com_HexStrToInt( str );
+
 		if ( n >= 0 ) {
 			return n;
 		}
@@ -373,12 +386,12 @@ void Key_SetBinding( int keynum, const char *binding ) {
 	if ( keys[ keynum ].binding ) {
 		Z_Free( keys[ keynum ].binding );
 	}
-		
+
 	// allocate memory for new binding
 	keys[ keynum ].binding = CopyString( binding );
 
 	// consider this like modifying an archived cvar, so the
-	// file write will be triggered at the next oportunity
+	// file write will be triggered at the next opportunity
 	cvar_modifiedFlags |= CVAR_ARCHIVE;
 }
 
@@ -397,7 +410,7 @@ const char *Key_GetBinding( int keynum ) {
 }
 
 
-/* 
+/*
 ===================
 Key_GetKey
 ===================
@@ -430,7 +443,7 @@ static void Key_Unbind_f( void )
 		Com_Printf( "unbind <key> : remove commands from a key\n" );
 		return;
 	}
-	
+
 	b = Key_StringToKeynum( Cmd_Argv( 1 ) );
 	if ( b == -1 )
 	{
@@ -450,8 +463,8 @@ Key_Unbindall_f
 static void Key_Unbindall_f( void )
 {
 	int		i;
-	
-	for ( i = 0 ; i < MAX_KEYS; i++ ) 
+
+	for ( i = 0 ; i < MAX_KEYS; i++ )
 	{
 		if ( keys[i].binding )
 		{
@@ -469,7 +482,7 @@ Key_Bind_f
 static void Key_Bind_f( void )
 {
 	int c, b;
-	
+
 	c = Cmd_Argc();
 
 	if ( c < 2 )
@@ -493,7 +506,7 @@ static void Key_Bind_f( void )
 			Com_Printf( "\"%s\" is not bound\n", Cmd_Argv( 1 ) );
 		return;
 	}
-	
+
 	// copy the rest of the command line
 	Key_SetBinding( b, Cmd_ArgsFrom( 2 ) );
 }
@@ -650,7 +663,7 @@ void Key_ParseBinding( int key, qboolean down, unsigned time )
 Com_InitKeyCommands
 ===================
 */
-void Com_InitKeyCommands( void ) 
+void Com_InitKeyCommands( void )
 {
 	// register our functions
 	Cmd_AddCommand( "bind", Key_Bind_f );

@@ -260,14 +260,27 @@ void RE_AddDynamicLightToScene( const vec3_t org, float intensity, float r, floa
 		return;
 	}
 #ifdef USE_PMLIGHT
-	if ( r_dlightMode->integer ) {
+#ifdef USE_LEGACY_DLIGHTS
+	if ( r_dlightMode->integer )
+#endif
+	{
 		r *= r_dlightIntensity->value;
 		g *= r_dlightIntensity->value;
 		b *= r_dlightIntensity->value;
+		intensity *= r_dlightScale->value;
 	}
 #endif
+
+	if ( r_dlightSaturation->value != 1.0 )
+	{
+		float luminance = LUMA( r, g, b );
+		r = LERP( luminance, r, r_dlightSaturation->value );
+		g = LERP( luminance, g, r_dlightSaturation->value );
+		b = LERP( luminance, b, r_dlightSaturation->value );
+	}
+
 	dl = &backEndData->dlights[r_numdlights++];
-	VectorCopy (org, dl->origin);
+	VectorCopy( org, dl->origin );
 	dl->radius = intensity;
 	dl->color[0] = r;
 	dl->color[1] = g;
@@ -298,12 +311,25 @@ void RE_AddLinearLightToScene( const vec3_t start, const vec3_t end, float inten
 		return;
 	}
 #ifdef USE_PMLIGHT
-	if ( r_dlightMode->integer ) {
+#ifdef USE_LEGACY_DLIGHTS
+	if ( r_dlightMode->integer )
+#endif
+	{
 		r *= r_dlightIntensity->value;
 		g *= r_dlightIntensity->value;
 		b *= r_dlightIntensity->value;
+		intensity *= r_dlightScale->value;
 	}
 #endif
+
+	if ( r_dlightSaturation->value != 1.0 )
+	{
+		float luminance = LUMA( r, g, b );
+		r = LERP( luminance, r, r_dlightSaturation->value );
+		g = LERP( luminance, g, r_dlightSaturation->value );
+		b = LERP( luminance, b, r_dlightSaturation->value );
+	}
+
 	dl = &backEndData->dlights[ r_numdlights++ ];
 	VectorCopy( start, dl->origin );
 	VectorCopy( end, dl->origin2 );
@@ -458,7 +484,7 @@ void RE_RenderScene( const refdef_t *fd ) {
 	parms.scissorWidth = parms.viewportWidth;
 	parms.scissorHeight = parms.viewportHeight;
 
-	parms.isPortal = qfalse;
+	parms.portalView = PV_NONE;
 
 #ifdef USE_PMLIGHT
 	parms.dlights = tr.refdef.dlights;

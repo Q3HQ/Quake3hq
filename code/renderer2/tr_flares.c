@@ -478,6 +478,10 @@ void RB_RenderFlares (void) {
 		return;
 	}
 
+	if ( backEnd.isHyperspace ) {
+		return;
+	}
+
 	if(r_flareCoeff->modified)
 	{
 		R_SetFlareCoeff();
@@ -524,10 +528,6 @@ void RB_RenderFlares (void) {
 
 	if ( !draw ) {
 		return;		// none visible
-	}
-
-	if ( backEnd.viewParms.isPortal ) {
-		qglDisable (GL_CLIP_PLANE0);
 	}
 
 	Mat4Copy(glState.projection, oldprojection);

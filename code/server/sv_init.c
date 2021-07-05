@@ -128,7 +128,7 @@ void SV_SetConfigstring (int index, const char *val) {
 	// spawning a new server
 	if ( sv.state == SS_GAME || sv.restarting ) {
 
-		// send the data to all relevent clients
+		// send the data to all relevant clients
 		for (i = 0, client = svs.clients; i < sv_maxclients->integer ; i++, client++) {
 			if ( client->state < CS_ACTIVE ) {
 				if ( client->state == CS_PRIMED )
@@ -139,7 +139,7 @@ void SV_SetConfigstring (int index, const char *val) {
 			if ( index == CS_SERVERINFO && ( SV_GentityNum( i )->r.svFlags & SVF_NOSERVERINFO ) ) {
 				continue;
 			}
-		
+
 			SV_SendConfigstring(client, index);
 		}
 	}
@@ -216,7 +216,7 @@ baseline will be transmitted
 */
 static void SV_CreateBaseline( void ) {
 	sharedEntity_t *ent;
-	int				entnum;	
+	int				entnum;
 
 	for ( entnum = 0; entnum < sv.num_entities ; entnum++ ) {
 		ent = SV_GentityNum( entnum );
@@ -256,7 +256,7 @@ static void SV_BoundMaxClients( int minimum ) {
 SV_SetSnapshotParams
 ===============
 */
-static void SV_SetSnapshotParams( void ) 
+static void SV_SetSnapshotParams( void )
 {
 	// PACKET_BACKUP frames is just about 6.67MB so use that even on listen servers
 	svs.numSnapshotEntities = PACKET_BACKUP * MAX_GENTITIES;
@@ -290,9 +290,11 @@ static void SV_Startup( void ) {
 	}
 
 	Cvar_Set( "sv_running", "1" );
-	
+
 	// Join the ipv6 multicast group now that a map is running so clients can scan for us on the local network.
+#ifdef USE_IPV6
 	NET_JoinMulticast6();
+#endif
 }
 
 
@@ -352,7 +354,7 @@ void SV_ChangeMaxClients( void ) {
 
 	// free the old clients on the hunk
 	Hunk_FreeTempMemory( oldClients );
-	
+
 	SV_SetSnapshotParams();
 }
 
@@ -372,26 +374,11 @@ static void SV_ClearServer( void ) {
 	}
 
 	if ( !sv_levelTimeReset->integer ) {
-		i = sv.time; 
+		i = sv.time;
 		Com_Memset( &sv, 0, sizeof( sv ) );
 		sv.time = i;
 	} else {
 		Com_Memset( &sv, 0, sizeof( sv ) );
-	}
-}
-
-
-/*
-================
-SV_TouchFile
-================
-*/
-static void SV_TouchFile( const char *filename ) {
-	fileHandle_t	f;
-
-	FS_FOpenFileRead( filename, &f, qfalse );
-	if ( f != FS_INVALID_HANDLE ) {
-		FS_FCloseFile( f );
 	}
 }
 
@@ -440,7 +427,7 @@ void SV_SpawnServer( const char *mapname, qboolean killBots ) {
 	// Restart renderer?
 	// CL_StartHunkUsers( );
 
-	// init client structures and svs.numSnapshotEntities 
+	// init client structures and svs.numSnapshotEntities
 	if ( !Cvar_VariableIntegerValue( "sv_running" ) ) {
 		SV_Startup();
 	} else {
@@ -469,7 +456,7 @@ void SV_SpawnServer( const char *mapname, qboolean killBots ) {
 	// server has changed
 	svs.snapFlagServerBit ^= SNAPFLAG_SERVERCOUNT;
 
-	// set nextmap to the same map, but it may be overriden
+	// set nextmap to the same map, but it may be overridden
 	// by the game startup or another console command
 	Cvar_Set( "nextmap", "map_restart 0" );
 //	Cvar_Set( "nextmap", va("map %s", server) );
@@ -505,6 +492,9 @@ void SV_SpawnServer( const char *mapname, qboolean killBots ) {
 	Cvar_Set( "cl_paused", "0" );
 #endif
 
+	// get latched value
+	Cvar_Get( "sv_pure", "1", CVAR_SYSTEMINFO | CVAR_LATCH );
+
 	// get a new checksum feed and restart the file system
 	srand( Com_Milliseconds() );
 	Com_RandomBytes( (byte*)&sv.checksumFeed, sizeof( sv.checksumFeed ) );
@@ -526,7 +516,7 @@ void SV_SpawnServer( const char *mapname, qboolean killBots ) {
 
 	// clear physics interaction links
 	SV_ClearWorld();
-	
+
 	// media configstring setting should be done during
 	// the loading stage, so connected clients don't have
 	// to load during actual gameplay
@@ -541,6 +531,8 @@ void SV_SpawnServer( const char *mapname, qboolean killBots ) {
 	// don't allow a map_restart if game is modified
 	sv_gametype->modified = qfalse;
 
+	sv_pure->modified = qfalse;
+
 	// run a few frames to allow everything to settle
 	for ( i = 0; i < 3; i++ )
 	{
@@ -552,10 +544,10 @@ void SV_SpawnServer( const char *mapname, qboolean killBots ) {
 	// create a baseline for more efficient communications
 	SV_CreateBaseline();
 
-	for (i=0 ; i<sv_maxclients->integer ; i++) {
+	for ( i = 0; i < sv_maxclients->integer; i++ ) {
 		// send the new gamestate to all connected clients
-		if (svs.clients[i].state >= CS_CONNECTED) {
-			char	*denied;
+		if ( svs.clients[i].state >= CS_CONNECTED ) {
+			const char *denied;
 
 			if ( svs.clients[i].netchan.remoteAddress.type == NA_BOT ) {
 				if ( killBots ) {
@@ -597,7 +589,7 @@ void SV_SpawnServer( const char *mapname, qboolean killBots ) {
 				}
 			}
 		}
-	}	
+	}
 
 	// run another frame to allow things to look at all the players
 	sv.time += 100;
@@ -608,15 +600,23 @@ void SV_SpawnServer( const char *mapname, qboolean killBots ) {
 	// we need to touch the cgame and ui qvm because they could be in
 	// separate pk3 files and the client will need to download the pk3
 	// files with the latest cgame and ui qvm to pass the pure check
-	SV_TouchFile( "vm/cgame.qvm" );
-	SV_TouchFile( "vm/ui.qvm" );
+	FS_TouchFileInPak( "vm/cgame.qvm" );
+	FS_TouchFileInPak( "vm/ui.qvm" );
 
 	// the server sends these to the clients so they can figure
 	// out which pk3s should be auto-downloaded
+	p = FS_ReferencedPakNames();
+	if ( FS_ExcludeReference() ) {
+		// \fs_excludeReference may mask our current ui/cgame qvms
+		FS_TouchFileInPak( "vm/cgame.qvm" );
+		FS_TouchFileInPak( "vm/ui.qvm" );
+		// rebuild referenced paks list
+		p = FS_ReferencedPakNames();
+	}
+	Cvar_Set( "sv_referencedPakNames", p );
+
 	p = FS_ReferencedPakChecksums();
 	Cvar_Set( "sv_referencedPaks", p );
-	p = FS_ReferencedPakNames();
-	Cvar_Set( "sv_referencedPakNames", p );
 
 	Cvar_Set( "sv_paks", "" );
 	Cvar_Set( "sv_pakNames", "" ); // not used on client-side
@@ -646,7 +646,7 @@ void SV_SpawnServer( const char *mapname, qboolean killBots ) {
 			// load pk3s also loaded at the server
 			Cvar_Set( "sv_paks", p );
 			if ( *p == '\0' ) {
-				Com_Printf( "WARNING: sv_pure set but no PK3 files loaded\n" );
+				Com_Printf( S_COLOR_YELLOW "WARNING: sv_pure set but no PK3 files loaded\n" );
 			}
 		}
 	}
@@ -696,7 +696,7 @@ void SV_Init( void )
 	Cvar_Get ("timelimit", "0", CVAR_SERVERINFO);
 	sv_gametype = Cvar_Get ("g_gametype", "0", CVAR_SERVERINFO | CVAR_LATCH );
 	Cvar_Get ("sv_keywords", "", CVAR_SERVERINFO);
-	Cvar_Get ("protocol", va("%i", PROTOCOL_VERSION), CVAR_SERVERINFO | CVAR_ROM);
+	//Cvar_Get ("protocol", va("%i", PROTOCOL_VERSION), CVAR_SERVERINFO | CVAR_ROM);
 	sv_mapname = Cvar_Get ("mapname", "nomap", CVAR_SERVERINFO | CVAR_ROM);
 	sv_privateClients = Cvar_Get( "sv_privateClients", "0", CVAR_SERVERINFO );
 	Cvar_CheckRange( sv_privateClients, "0", va( "%i", MAX_CLIENTS-1 ), CV_INTEGER );
@@ -708,18 +708,21 @@ void SV_Init( void )
 	Cvar_CheckRange( sv_maxclientsPerIP, "1", NULL, CV_INTEGER );
 	Cvar_SetDescription( sv_maxclientsPerIP, "Limits number of simultaneous connections from the same IP address." );
 
+	sv_clientTLD = Cvar_Get( "sv_clientTLD", "0", CVAR_ARCHIVE_ND );
+	Cvar_CheckRange( sv_clientTLD, NULL, NULL, CV_INTEGER );
+
 	sv_minRate = Cvar_Get ("sv_minRate", "0", CVAR_ARCHIVE_ND | CVAR_SERVERINFO );
 	sv_maxRate = Cvar_Get ("sv_maxRate", "0", CVAR_ARCHIVE_ND | CVAR_SERVERINFO );
 	sv_dlRate = Cvar_Get("sv_dlRate", "100", CVAR_ARCHIVE | CVAR_SERVERINFO);
 	sv_floodProtect = Cvar_Get ("sv_floodProtect", "1", CVAR_ARCHIVE | CVAR_SERVERINFO );
 
 	// systeminfo
-	Cvar_Get ("sv_cheats", "1", CVAR_SYSTEMINFO | CVAR_ROM );
-	sv_serverid = Cvar_Get ("sv_serverid", "0", CVAR_SYSTEMINFO | CVAR_ROM );
-	sv_pure = Cvar_Get ("sv_pure", "1", CVAR_SYSTEMINFO );
-	Cvar_Get ("sv_paks", "", CVAR_SYSTEMINFO | CVAR_ROM );
-	Cvar_Get ("sv_pakNames", "", CVAR_SYSTEMINFO | CVAR_ROM );
-	Cvar_Get ("sv_referencedPaks", "", CVAR_SYSTEMINFO | CVAR_ROM );
+	Cvar_Get( "sv_cheats", "1", CVAR_SYSTEMINFO | CVAR_ROM );
+	sv_serverid = Cvar_Get( "sv_serverid", "0", CVAR_SYSTEMINFO | CVAR_ROM );
+	sv_pure = Cvar_Get( "sv_pure", "1", CVAR_SYSTEMINFO | CVAR_LATCH );
+	Cvar_Get( "sv_paks", "", CVAR_SYSTEMINFO | CVAR_ROM );
+	Cvar_Get( "sv_pakNames", "", CVAR_SYSTEMINFO | CVAR_ROM );
+	Cvar_Get( "sv_referencedPaks", "", CVAR_SYSTEMINFO | CVAR_ROM );
 	sv_referencedPakNames = Cvar_Get( "sv_referencedPakNames", "", CVAR_SYSTEMINFO | CVAR_ROM );
 
 	// server vars
@@ -738,12 +741,13 @@ void SV_Init( void )
 	sv_allowDownload = Cvar_Get ("sv_allowDownload", "1", CVAR_SERVERINFO);
 	Cvar_Get ("sv_dlURL", "", CVAR_SERVERINFO | CVAR_ARCHIVE);
 
-	sv_master[0] = Cvar_Get( "sv_master1", MASTER_SERVER_NAME, CVAR_INIT );
-	sv_master[1] = Cvar_Get( "sv_master2", "master.ioquake3.org", CVAR_INIT );
-	sv_master[2] = Cvar_Get( "sv_master3", "master.maverickservers.com", CVAR_INIT );
+	// moved to Com_Init()
+	//sv_master[0] = Cvar_Get( "sv_master1", MASTER_SERVER_NAME, CVAR_INIT | CVAR_ARCHIVE_ND );
+	//sv_master[1] = Cvar_Get( "sv_master2", "master.ioquake3.org", CVAR_INIT | CVAR_ARCHIVE_ND );
+	//sv_master[2] = Cvar_Get( "sv_master3", "master.maverickservers.com", CVAR_INIT | CVAR_ARCHIVE_ND );
 
-	for ( index = 3; index < MAX_MASTER_SERVERS; index++ )
-		sv_master[index] = Cvar_Get(va("sv_master%d", index + 1), "", CVAR_ARCHIVE);
+	for ( index = 0; index < MAX_MASTER_SERVERS; index++ )
+		sv_master[ index ] = Cvar_Get( va( "sv_master%d", index + 1 ), "", CVAR_ARCHIVE_ND );
 
 	sv_reconnectlimit = Cvar_Get( "sv_reconnectlimit", "3", 0 );
 	Cvar_CheckRange( sv_reconnectlimit, "0", "12", CV_INTEGER );
@@ -767,7 +771,7 @@ void SV_Init( void )
 	// init the botlib here because we need the pre-compiler in the UI
 	SV_BotInitBotLib();
 
-#ifdef USE_BANS	
+#ifdef USE_BANS
 	// Load saved bans
 	Cbuf_AddText("rehashbans\n");
 #endif
@@ -798,7 +802,7 @@ to totally exit after returning from this function.
 void SV_FinalMessage( const char *message ) {
 	int			i, j;
 	client_t	*cl;
-	
+
 	// send it twice, ignoring rate
 	for ( j = 0 ; j < 2 ; j++ ) {
 		for (i=0, cl = svs.clients ; i < sv_maxclients->integer ; i++, cl++) {
@@ -833,7 +837,9 @@ void SV_Shutdown( const char *finalmsg ) {
 
 	Com_Printf( "----- Server Shutdown (%s) -----\n", finalmsg );
 
+#ifdef USE_IPV6
 	NET_LeaveMulticast6();
+#endif
 
 	if ( svs.clients && !com_errorEntered ) {
 		SV_FinalMessage( finalmsg );
@@ -847,13 +853,15 @@ void SV_Shutdown( const char *finalmsg ) {
 	// free current level
 	SV_ClearServer();
 
+	SV_FreeIP4DB();
+
 	// free server static data
 	if ( svs.clients ) {
 		int index;
 
 		for ( index = 0; index < sv_maxclients->integer; index++ )
 			SV_FreeClient( &svs.clients[ index ] );
-		
+
 		Z_Free( svs.clients );
 	}
 	Com_Memset( &svs, 0, sizeof( svs ) );

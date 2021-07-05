@@ -269,7 +269,7 @@ static void SV_MapRestart_f( void ) {
 
 	// check for changes in variables that can't just be restarted
 	// check for maxclients change
-	if ( sv_maxclients->modified || sv_gametype->modified ) {
+	if ( sv_maxclients->modified || sv_gametype->modified || sv_pure->modified ) {
 		char	mapname[MAX_QPATH];
 
 		Com_Printf( "variable change -- restarting.\n" );
@@ -1099,7 +1099,7 @@ static void SV_KickNum_f( void ) {
 /*
 ** SV_Strlen -- skips color escape codes
 */
-static int SV_Strlen( const char *str ) {
+int SV_Strlen( const char *str ) {
 	const char *s = str;
 	int count = 0;
 
@@ -1298,7 +1298,7 @@ static void SV_ConTell_f( void ) {
 		return;
 	}
 
-	strcpy( text, "console_tell: " );
+	strcpy( text, S_COLOR_MAGENTA "console: " );
 	p = Cmd_ArgsFrom( 2 );
 
 	if ( strlen( p ) > 1000 ) {
@@ -1338,11 +1338,13 @@ Examine the serverinfo string
 */
 static void SV_Serverinfo_f( void ) {
 	const char *info;
+
 	// make sure server is running
 	if ( !com_sv_running->integer ) {
 		Com_Printf( "Server is not running.\n" );
 		return;
 	}
+
 	Com_Printf ("Server info settings:\n");
 	info = sv.configstrings[ CS_SERVERINFO ];
 	if ( info ) {
@@ -1412,6 +1414,28 @@ SV_KillServer
 */
 static void SV_KillServer_f( void ) {
 	SV_Shutdown( "killserver" );
+}
+
+
+/*
+=================
+SV_Locations
+=================
+*/
+static void SV_Locations_f( void ) {
+
+	// make sure server is running
+	if ( !com_sv_running->integer ) {
+		Com_Printf( "Server is not running.\n" );
+		return;
+	}
+
+	if ( !sv_clientTLD->integer ) {
+		Com_Printf( "Disabled on this server.\n" );
+		return;
+	}
+
+	SV_PrintLocations_f( NULL );
 }
 
 //===========================================================
@@ -1513,6 +1537,7 @@ void SV_AddDedicatedCommands( void )
 	Cmd_AddCommand( "systeminfo", SV_Systeminfo_f );
 	Cmd_AddCommand( "tell", SV_ConTell_f );
 	Cmd_AddCommand( "say", SV_ConSay_f );
+	Cmd_AddCommand( "locations", SV_Locations_f );
 }
 
 
@@ -1522,4 +1547,5 @@ void SV_RemoveDedicatedCommands( void )
 	Cmd_RemoveCommand( "systeminfo" );
 	Cmd_RemoveCommand( "tell" );
 	Cmd_RemoveCommand( "say" );
+	Cmd_RemoveCommand( "locations" );
 }

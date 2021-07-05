@@ -197,7 +197,7 @@ R_CullLocalBox
 Returns CULL_IN, CULL_CLIP, or CULL_OUT
 =================
 */
-int R_CullLocalBox(vec3_t localBounds[2]) {
+int R_CullLocalBox( const vec3_t localBounds[2] ) {
 #if 0
 	int		i, j;
 	vec3_t	transformed[8];
@@ -1715,6 +1715,9 @@ Visualization aid for movement clipping debugging
 ====================
 */
 void R_DebugGraphics( void ) {
+	if ( tr.refdef.rdflags & RDF_NOWORLDMODEL ) {
+		return;
+	}
 	if ( !r_debugSurface->integer ) {
 		return;
 	}

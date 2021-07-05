@@ -1,3 +1,4 @@
+
 # Quake3 Unix Makefile
 #
 # Nov '98 by Zoid <zoid@idsoftware.com>
@@ -12,6 +13,10 @@
 COMPILE_PLATFORM=$(shell uname | sed -e 's/_.*//' | tr '[:upper:]' '[:lower:]' | sed -e 's/\//_/g')
 COMPILE_ARCH=$(shell uname -m | sed -e 's/i.86/x86/' | sed -e 's/^arm.*/arm/')
 
+ifeq ($(shell uname -m),arm64)
+  COMPILE_ARCH=aarch64
+endif
+
 ifeq ($(COMPILE_PLATFORM),mingw32)
   ifeq ($(COMPILE_ARCH),i386)
     COMPILE_ARCH=x86
@@ -21,14 +26,25 @@ endif
 BUILD_CLIENT     = 1
 BUILD_SERVER     = 0
 
+USE_SDL          = 1
 USE_CURL         = 1
 USE_LOCAL_HEADERS= 0
+USE_VULKAN       = 1
+USE_OPENGL       = 1
+USE_OPENGL2      = 0
+USE_SYSTEM_JPEG  = 0
+USE_VULKAN_API   = 1
+
+USE_RENDERER_DLOPEN = 1
 
 CNAME            = quake3hq
 DNAME            = quake3hq.ded
 
-#USE_ALSA_STATIC = 1
-#USE_STATIC_GL   = 1
+RENDERER_PREFIX  = $(CNAME)
+
+# valid options: opengl, vulkan, opengl2
+RENDERER_DEFAULT = opengl1
+
 
 ifeq ($(V),1)
 echo_cmd=@:
@@ -47,6 +63,10 @@ endif
 #
 #############################################################################
 -include Makefile.local
+
+ifeq ($(COMPILE_PLATFORM),darwin)
+  USE_SDL=1
+endif
 
 ifeq ($(COMPILE_PLATFORM),cygwin)
   PLATFORM=mingw32
@@ -91,8 +111,8 @@ else
 endif
 export CROSS_COMPILING
 
-ifndef COPYDIR
-COPYDIR="/usr/local/games/quake3"
+ifndef DESTDIR
+DESTDIR=/usr/local/games/quake3
 endif
 
 ifndef MOUNT_DIR
@@ -112,10 +132,6 @@ USE_CCACHE=0
 endif
 export USE_CCACHE
 
-ifndef USE_CODEC_VORBIS
-USE_CODEC_VORBIS=0
-endif
-
 ifndef USE_LOCAL_HEADERS
 USE_LOCAL_HEADERS=1
 endif
@@ -132,13 +148,30 @@ ifndef USE_CURL_DLOPEN
   endif
 endif
 
-ifndef USE_ALSA_STATIC
-USE_ALSA_STATIC=0
+ifeq ($(USE_RENDERER_DLOPEN),0)
+  ifeq ($(RENDERER_DEFAULT),opengl)
+    USE_OPENGL=1
+    USE_OPENGL2=0
+    USE_VULKAN=0
+    USE_VULKAN_API=0
+  endif
+  ifeq ($(RENDERER_DEFAULT),opengl2)
+    USE_OPENGL=0
+    USE_OPENGL2=1
+    USE_VULKAN=0
+    USE_VULKAN_API=0
+  endif
+  ifeq ($(RENDERER_DEFAULT),vulkan)
+    USE_OPENGL=0
+    USE_OPENGL2=0
+    USE_VULKAN=1
+  endif
 endif
 
-ifndef USE_STATIC_GL
-USE_STATIC_GL=0
+ifneq ($(USE_VULKAN),0)
+  USE_VULKAN_API=1
 endif
+
 
 #############################################################################
 
@@ -147,18 +180,43 @@ BR=$(BUILD_DIR)/release-$(PLATFORM)-$(ARCH)
 ADIR=$(MOUNT_DIR)/asm
 CDIR=$(MOUNT_DIR)/client
 SDIR=$(MOUNT_DIR)/server
-RDIR=$(MOUNT_DIR)/renderer
+RCDIR=$(MOUNT_DIR)/renderercommon
+R1DIR=$(MOUNT_DIR)/renderer
+R2DIR=$(MOUNT_DIR)/renderer2
+RVDIR=$(MOUNT_DIR)/renderervk
+SDLDIR=$(MOUNT_DIR)/sdl
+
 CMDIR=$(MOUNT_DIR)/qcommon
 UDIR=$(MOUNT_DIR)/unix
 W32DIR=$(MOUNT_DIR)/win32
 BLIBDIR=$(MOUNT_DIR)/botlib
-NDIR=$(MOUNT_DIR)/null
 UIDIR=$(MOUNT_DIR)/ui
-JPDIR=$(MOUNT_DIR)/jpeg-8c
-LOKISETUPDIR=$(UDIR)/setup
+JPDIR=$(MOUNT_DIR)/libjpeg
 
 bin_path=$(shell which $(1) 2> /dev/null)
-STRIP=strip
+
+STRIP ?= strip
+PKG_CONFIG ?= pkg-config
+INSTALL=install
+MKDIR=mkdir
+
+ifneq ($(call bin_path, $(PKG_CONFIG)),)
+  SDL_INCLUDE ?= $(shell $(PKG_CONFIG) --silence-errors --cflags-only-I sdl2)
+  SDL_LIBS ?= $(shell $(PKG_CONFIG) --silence-errors --libs sdl2)
+  X11_INCLUDE ?= $(shell $(PKG_CONFIG) --silence-errors --cflags-only-I x11)
+  X11_LIBS ?= $(shell $(PKG_CONFIG) --silence-errors --libs x11)
+endif
+
+# supply some reasonable defaults for SDL/X11?
+ifeq ($(X11_INCLUDE),)
+X11_INCLUDE = -I/usr/X11R6/include
+endif
+ifeq ($(X11_LIBS),)
+X11_LIBS = -lX11
+endif
+ifeq ($(SDL_LIBS),)
+SDL_LIBS = -lSDL2
+endif
 
 # extract version info
 VERSION=$(shell grep "\#define Q3_VERSION" $(CMDIR)/q_shared.h | \
@@ -175,77 +233,60 @@ else
 endif
 endif
 
-#############################################################################
-# SETUP AND BUILD -- LINUX
-#############################################################################
+ifeq ($(ARCH),arm)
+  HAVE_VM_COMPILED = true
+endif
+ifeq ($(ARCH),aarch64)
+  HAVE_VM_COMPILED = true
+endif
 
-## Defaults
-INSTALL=install
-MKDIR=mkdir
+BASE_CFLAGS =
 
-ifeq ($(PLATFORM),linux)
+ifeq ($(USE_SYSTEM_JPEG),1)
+  BASE_CFLAGS += -DUSE_SYSTEM_JPEG
+endif
 
-  ifeq ($(ARCH),x86_64)
-    LIB=lib64
+ifneq ($(HAVE_VM_COMPILED),true)
+  BASE_CFLAGS += -DNO_VM_COMPILED
+endif
+
+ifneq ($(USE_RENDERER_DLOPEN),0)
+  BASE_CFLAGS += -DUSE_RENDERER_DLOPEN
+  BASE_CFLAGS += -DRENDERER_PREFIX=\\\"$(RENDERER_PREFIX)\\\"
+  BASE_CFLAGS += -DRENDERER_DEFAULT="$(RENDERER_DEFAULT)"
+endif
+
+ifdef DEFAULT_BASEDIR
+  BASE_CFLAGS += -DDEFAULT_BASEDIR=\\\"$(DEFAULT_BASEDIR)\\\"
+endif
+
+ifeq ($(USE_LOCAL_HEADERS),1)
+  BASE_CFLAGS += -DUSE_LOCAL_HEADERS=1
+endif
+
+ifeq ($(USE_CURL),1)
+  BASE_CFLAGS += -DUSE_CURL
+  ifeq ($(USE_CURL_DLOPEN),1)
+    BASE_CFLAGS += -DUSE_CURL_DLOPEN
   else
-    LIB=lib
+    ifeq ($(MINGW),1)
+      BASE_CFLAGS += -DCURL_STATICLIB
+    endif
   endif
+endif
 
-  BASE_CFLAGS = -Wall -fno-strict-aliasing -Wimplicit -Wstrict-prototypes -pipe
+ifeq ($(USE_VULKAN_API),1)
+  BASE_CFLAGS += -DUSE_VULKAN_API
+endif
 
-  ifeq ($(USE_CODEC_VORBIS),1)
-    BASE_CFLAGS += -DUSE_CODEC_VORBIS=1
-  endif
+ifeq ($(GENERATE_DEPENDENCIES),1)
+  BASE_CFLAGS += -MMD
+endif
 
-  BASE_CFLAGS += -I/usr/X11R7/include -I/usr/include
 
-  OPTIMIZE = -O2 -fvisibility=hidden
+ARCHEXT=
 
-  ifeq ($(ARCH),x86_64)
-    CNAME    = quake3hq.x64
-    DNAME    = quake3hq.ded.x64
-  else
-  ifeq ($(ARCH),x86)
-    OPTIMIZE += -march=i586 -mtune=i686
-  endif
-  endif
-
-  ifneq ($(HAVE_VM_COMPILED),true)
-    BASE_CFLAGS += -DNO_VM_COMPILED
-  endif
-
-  DEBUG_CFLAGS = $(BASE_CFLAGS) -g -O0
-
-  RELEASE_CFLAGS=$(BASE_CFLAGS) -DNDEBUG $(OPTIMIZE)
-
-  SHLIBEXT=so
-  SHLIBCFLAGS=-fPIC
-  SHLIBLDFLAGS=-shared $(LDFLAGS)
-
-  THREAD_LDFLAGS=-lpthread
-  LDFLAGS=-ldl -lm -Wl,--hash-style=both
-
-  CLIENT_LDFLAGS=-L/usr/X11R7/$(LIB) -L/usr/$(LIB) -lX11
-
-  ifeq ($(USE_STATIC_GL),1)
-    CLIENT_LDFLAGS += -lGL
-  endif
-
-  ifeq ($(USE_ALSA_STATIC),1)
-    CLIENT_LDFLAGS += -lasound -lpthread
-  endif
-
-  ifeq ($(USE_CODEC_VORBIS),1)
-    CLIENT_LDFLAGS += -lvorbisfile -lvorbis -logg
-  endif
-
-  ifeq ($(ARCH),x86)
-    # linux32 make ...
-    BASE_CFLAGS += -m32
-    LDFLAGS+=-m32
-  endif
-
-else # ifeq Linux
+CLIENT_EXTRA_FILES=
 
 
 #############################################################################
@@ -253,7 +294,7 @@ else # ifeq Linux
 #############################################################################
 
 ifdef MINGW
- 
+
   ifeq ($(CROSS_COMPILING),1)
     # If CC is already set to something generic, we probably want to use
     # something more specific
@@ -291,7 +332,7 @@ ifdef MINGW
   endif
 
   # using generic windres if specific one is not present
-  ifndef WINDRES
+  ifeq ($(WINDRES),)
     WINDRES=windres
   endif
 
@@ -299,42 +340,43 @@ ifdef MINGW
     $(error Cannot find a suitable cross compiler for $(PLATFORM))
   endif
 
-  BASE_CFLAGS = -Wall -fno-strict-aliasing -Wimplicit -Wstrict-prototypes \
-    -DUSE_ICON
+  BASE_CFLAGS += -Wall -Wimplicit -Wstrict-prototypes -DUSE_ICON -DMINGW=1
 
-#  OPTIMIZE = -O3 -march=i586 -fomit-frame-pointer -ffast-math -falign-loops=2 \
-#    -funroll-loops -falign-jumps=2 -falign-functions=2 -fstrength-reduce
+  BASE_CFLAGS += -Wno-unused-result
 
   ifeq ($(ARCH),x86_64)
-    CNAME    = quake3hq.x64
-    DNAME    = quake3hq.ded.x64
+    ARCHEXT = .x64
     BASE_CFLAGS += -m64
     OPTIMIZE = -O2 -ffast-math -fstrength-reduce
-    HAVE_VM_COMPILED = true
   endif
   ifeq ($(ARCH),x86)
     BASE_CFLAGS += -m32
     OPTIMIZE = -O2 -march=i586 -mtune=i686 -ffast-math -fstrength-reduce
-    HAVE_VM_COMPILED = true
   endif
 
-  DEBUG_CFLAGS=$(BASE_CFLAGS) -g -O0
+  SHLIBEXT = dll
+  SHLIBCFLAGS = -fPIC -fvisibility=hidden
+  SHLIBLDFLAGS = -shared $(LDFLAGS)
 
-  RELEASE_CFLAGS=$(BASE_CFLAGS) -DNDEBUG $(OPTIMIZE)
+  BINEXT = .exe
 
-  SHLIBEXT=dll
-  SHLIBCFLAGS=
-  SHLIBLDFLAGS=-shared $(LDFLAGS)
-
-  BINEXT=.exe
-
-  LDFLAGS= -mwindows -Wl,--dynamicbase -Wl,--nxcompat
+  LDFLAGS = -mwindows -Wl,--dynamicbase -Wl,--nxcompat  -fvisibility=hidden
   LDFLAGS += -lwsock32 -lgdi32 -lwinmm -lole32 -lws2_32 -lpsapi -lcomctl32
 
   CLIENT_LDFLAGS=$(LDFLAGS)
 
-  ifeq ($(USE_CODEC_VORBIS),1)
-    CLIENT_LDFLAGS += -lvorbisfile -lvorbis -logg
+  ifeq ($(USE_SDL),1)
+    BASE_CFLAGS += -DUSE_LOCAL_HEADERS=1 -I$(MOUNT_DIR)/libsdl/windows/include/SDL2
+    #CLIENT_CFLAGS += -DUSE_LOCAL_HEADERS=1
+    ifeq ($(ARCH),x86)
+      CLIENT_LDFLAGS += -L$(MOUNT_DIR)/libsdl/windows/mingw/lib32
+      CLIENT_LDFLAGS += -lSDL2
+      CLIENT_EXTRA_FILES += $(MOUNT_DIR)/libsdl/windows/mingw/lib32/SDL2.dll
+    else
+      CLIENT_LDFLAGS += -L$(MOUNT_DIR)/libsdl/windows/mingw/lib64
+      CLIENT_LDFLAGS += -lSDL264
+      CLIENT_EXTRA_FILES += $(MOUNT_DIR)/libsdl/windows/mingw/lib64/SDL264.dll
+    endif
   endif
 
   ifeq ($(USE_CURL),1)
@@ -347,142 +389,125 @@ ifdef MINGW
     CLIENT_LDFLAGS += -lcurl -lwldap32 -lcrypt32
   endif
 
-else # ifeq mingw32
+  DEBUG_CFLAGS = $(BASE_CFLAGS) -DDEBUG -D_DEBUG -g -O0
+  RELEASE_CFLAGS = $(BASE_CFLAGS) -DNDEBUG $(OPTIMIZE)
+
+else # !MINGW
+
+ifeq ($(COMPILE_PLATFORM),darwin)
 
 #############################################################################
-# SETUP AND BUILD -- FREEBSD
+# SETUP AND BUILD -- MACOS
 #############################################################################
 
-ifeq ($(PLATFORM),freebsd)
+  BASE_CFLAGS += -Wall -Wimplicit -Wstrict-prototypes -pipe
 
-  BASE_CFLAGS = -Wall -fno-strict-aliasing -Wimplicit -Wstrict-prototypes \
-                -I/usr/X11R6/include -I/usr/local/include \
-                -fvisibility=hidden
+  BASE_CFLAGS += -Wno-unused-result
 
-  DEBUG_CFLAGS=$(BASE_CFLAGS) -g
+  OPTIMIZE = -O2 -fvisibility=hidden
+
+  SHLIBEXT = dylib
+  SHLIBCFLAGS = -fPIC -fvisibility=hidden
+  SHLIBLDFLAGS = -dynamiclib $(LDFLAGS)
+
+  LDFLAGS =
+
+  ifneq ($(SDL_INCLUDE),)
+    BASE_CFLAGS += $(SDL_INCLUDE)
+    CLIENT_LDFLAGS = $(SDL_LIBS)
+  else
+    BASE_CFLAGS += -I/Library/Frameworks/SDL2.framework/Headers
+    CLIENT_LDFLAGS = -F/Library/Frameworks -framework SDL2
+  endif
+
+  DEBUG_CFLAGS = $(BASE_CFLAGS) -DDEBUG -D_DEBUG -g -O0
+  RELEASE_CFLAGS = $(BASE_CFLAGS) -DNDEBUG $(OPTIMIZE)
+
+else
+
+#############################################################################
+# SETUP AND BUILD -- *NIX PLATFORMS
+#############################################################################
+
+  BASE_CFLAGS += -Wall -Wimplicit -Wstrict-prototypes -pipe
+
+  BASE_CFLAGS += -Wno-unused-result
+
+  BASE_CFLAGS += -DUSE_ICON
+
+  BASE_CFLAGS += -I/usr/include -I/usr/local/include
+
+  OPTIMIZE = -O2 -fvisibility=hidden
 
   ifeq ($(ARCH),x86_64)
-    RELEASE_CFLAGS=$(BASE_CFLAGS) -DNDEBUG -O3 -ffast-math -funroll-loops \
-      -fomit-frame-pointer -fexpensive-optimizations
+    ARCHEXT = .x64
   else
   ifeq ($(ARCH),x86)
-    RELEASE_CFLAGS=$(BASE_CFLAGS) -DNDEBUG -O3 -mtune=pentiumpro \
-      -march=pentium -fomit-frame-pointer -pipe -ffast-math \
-      -falign-loops=2 -falign-jumps=2 -falign-functions=2 \
-      -funroll-loops -fstrength-reduce
+    OPTIMIZE += -march=i586 -mtune=i686
   endif
   endif
 
-  ifneq ($(HAVE_VM_COMPILED),true)
-    BASE_CFLAGS += -DNO_VM_COMPILED
+  ifeq ($(ARCH),arm)
+    OPTIMIZE += -march=armv7-a
+    ARCHEXT = .arm
   endif
 
-  SHLIBEXT=so
-  SHLIBCFLAGS=-fPIC
-  SHLIBLDFLAGS=-shared $(LDFLAGS)
-
-  THREAD_LDFLAGS=-lpthread
-  # don't need -ldl (FreeBSD)
-  LDFLAGS=-lm -lGL -lX11 -L/usr/local/lib -L/usr/X11R6/lib -lX11 -lXext
-
-  CLIENT_LDFLAGS =-lm -lGL -lX11 -L/usr/local/lib -L/usr/X11R6/lib -lX11 -lXext
-
-else # ifeq freebsd
-
-#############################################################################
-# SETUP AND BUILD -- OPENBSD
-#############################################################################
-
-ifeq ($(PLATFORM),openbsd)
-
-  BASE_CFLAGS = -Wall -fno-strict-aliasing -Wimplicit -Wstrict-prototypes \
-                -I/usr/X11R6/include -I/usr/local/include \
-                -I/usr/local/include/SDL -fvisibility=hidden
-
-  DEBUG_CFLAGS=$(BASE_CFLAGS) -g
-
-  ifeq ($(USE_CODEC_VORBIS),1)
-    BASE_CFLAGS += -DUSE_CODEC_VORBIS=1
+  ifeq ($(ARCH),aarch64)
+    ARCHEXT = .aarch64
   endif
 
-  ifeq ($(ARCH),x86_64)
-    RELEASE_CFLAGS=$(BASE_CFLAGS) -DNDEBUG -O3 -ffast-math -funroll-loops \
-      -fomit-frame-pointer -fexpensive-optimizations
+  SHLIBEXT = so
+  SHLIBCFLAGS = -fPIC -fvisibility=hidden
+  SHLIBLDFLAGS = -shared $(LDFLAGS)
+
+  LDFLAGS = -lm
+
+  ifeq ($(USE_SDL),1)
+    BASE_CFLAGS += $(SDL_INCLUDE)
+    CLIENT_LDFLAGS = $(SDL_LIBS)
   else
-  ifeq ($(ARCH),x86)
-    RELEASE_CFLAGS=$(BASE_CFLAGS) -DNDEBUG -O3 -mtune=pentiumpro \
-      -march=pentium -fomit-frame-pointer -pipe -ffast-math \
-      -falign-loops=2 -falign-jumps=2 -falign-functions=2 \
-      -funroll-loops -fstrength-reduce
-  endif
+    BASE_CFLAGS += $(X11_INCLUDE)
+    CLIENT_LDFLAGS = $(X11_LIBS)
   endif
 
-  ifneq ($(HAVE_VM_COMPILED),true)
-    BASE_CFLAGS += -DNO_VM_COMPILED
+  ifeq ($(USE_SYSTEM_JPEG),1)
+    CLIENT_LDFLAGS += -ljpeg
   endif
 
-  SHLIBEXT=so
-  SHLIBCFLAGS=-fPIC
-  SHLIBLDFLAGS=-shared $(LDFLAGS)
-
-  THREAD_LDFLAGS=-lpthread
-  # don't need -ldl (FreeBSD)
-  LDFLAGS=-lm -lSDL -lGL -lX11 -L/usr/local/lib -L/usr/X11R6/lib -lX11 -lXext
-
-  CLIENT_LDFLAGS =-lm -lSDL -lGL -lX11 -L/usr/local/lib -L/usr/X11R6/lib -lX11 -lXext
-
-  ifeq ($(USE_CODEC_VORBIS),1)
-    CLIENT_LDFLAGS += -lvorbisfile -lvorbis -logg
+  ifeq ($(USE_CURL),1)
+    ifeq ($(USE_CURL_DLOPEN),0)
+      CLIENT_LDFLAGS += -lcurl
+    endif
   endif
 
-else # ifeq openbsd
-
-#############################################################################
-# SETUP AND BUILD -- NETBSD
-#############################################################################
-
-ifeq ($(PLATFORM),netbsd)
-
-  LDFLAGS=-lm
-  SHLIBEXT=so
-  SHLIBCFLAGS=-fPIC
-  SHLIBLDFLAGS=-shared $(LDFLAGS)
-  THREAD_LDFLAGS=-lpthread
-
-  BASE_CFLAGS = -Wall -fno-strict-aliasing -Wimplicit -Wstrict-prototypes
-  DEBUG_CFLAGS=$(BASE_CFLAGS) -g
-
-  ifneq ($(HAVE_VM_COMPILED),true)
-    BASE_CFLAGS += -DNO_VM_COMPILED
+  ifeq ($(PLATFORM),linux)
+    LDFLAGS += -ldl -Wl,--hash-style=both
+    ifeq ($(ARCH),x86)
+      # linux32 make ...
+      BASE_CFLAGS += -m32
+      LDFLAGS += -m32
+    endif
   endif
 
-  BUILD_CLIENT = 0
+  DEBUG_CFLAGS = $(BASE_CFLAGS) -DDEBUG -D_DEBUG -g -O0
+  RELEASE_CFLAGS = $(BASE_CFLAGS) -DNDEBUG $(OPTIMIZE)
 
-else # ifeq netbsd
+  DEBUG_LDFLAGS = -rdynamic
 
-#############################################################################
-# SETUP AND BUILD -- GENERIC
-#############################################################################
+endif # *NIX platforms
 
-  BASE_CFLAGS=-DNO_VM_COMPILED
-  DEBUG_CFLAGS=$(BASE_CFLAGS) -g
-  RELEASE_CFLAGS=$(BASE_CFLAGS) -DNDEBUG -O3
+endif # !MINGW
 
-  SHLIBEXT=so
-  SHLIBCFLAGS=-fPIC
-  SHLIBLDFLAGS=-shared
 
-endif #Linux
-endif #mingw32
-endif #FreeBSD
-endif #OpenBSD
-endif #NetBSD
+TARGET_CLIENT = $(CNAME)$(ARCHEXT)$(BINEXT)
 
-#TARGET_CLIENT=$(CNAME).$(ARCH)$(BINEXT)
-#TARGET_SERVER=$(DNAME).$(ARCH)$(BINEXT)
+TARGET_REND1 = $(RENDERER_PREFIX)_opengl_$(SHLIBNAME)
+TARGET_REND2 = $(RENDERER_PREFIX)_opengl2_$(SHLIBNAME)
+TARGET_RENDV = $(RENDERER_PREFIX)_vulkan_$(SHLIBNAME)
 
-TARGET_CLIENT=$(CNAME)$(BINEXT)
-TARGET_SERVER=$(DNAME)$(BINEXT)
+TARGET_SERVER = $(DNAME)$(ARCHEXT)$(BINEXT)
+
+STRINGIFY = $(B)/rend2/stringify$(BINEXT)
 
 TARGETS =
 
@@ -492,43 +517,27 @@ endif
 
 ifneq ($(BUILD_CLIENT),0)
   TARGETS += $(B)/$(TARGET_CLIENT)
+  ifneq ($(USE_RENDERER_DLOPEN),0)
+    ifeq ($(USE_OPENGL),1)
+      TARGETS += $(B)/$(TARGET_REND1)
+    endif
+    ifeq ($(USE_OPENGL2),1)
+      TARGETS += $(B)/$(TARGET_REND2)
+    endif
+    ifeq ($(USE_VULKAN),1)
+      TARGETS += $(B)/$(TARGET_RENDV)
+    endif
+  endif
 endif
 
 ifeq ($(USE_CCACHE),1)
   CC := ccache $(CC)
 endif
 
-ifdef DEFAULT_BASEDIR
-  BASE_CFLAGS += -DDEFAULT_BASEDIR=\\\"$(DEFAULT_BASEDIR)\\\"
-endif
-
-ifeq ($(USE_LOCAL_HEADERS),1)
-  BASE_CFLAGS += -DUSE_LOCAL_HEADERS=1
-endif
-
-ifeq ($(USE_CURL),1)
-  BASE_CFLAGS += -DUSE_CURL
-ifeq ($(USE_CURL_DLOPEN),1)
-  BASE_CFLAGS += -DUSE_CURL_DLOPEN
+ifneq ($(USE_RENDERER_DLOPEN),0)
+    RENDCFLAGS=$(SHLIBCFLAGS)
 else
-  BASE_CFLAGS += -DCURL_STATICLIB
-endif
-endif
-
-ifeq ($(USE_ALSA_STATIC),1)
-  BASE_CFLAGS += -DUSE_ALSA_STATIC
-endif
-
-ifeq ($(USE_STATIC_GL),1)
-  BASE_CFLAGS += -DUSE_STATIC_GL
-endif
-
-ifeq ($(GENERATE_DEPENDENCIES),1)
-  BASE_CFLAGS += -MMD
-endif
-
-ifeq ($(USE_SVN),1)
-  BASE_CFLAGS += -DSVN_VERSION=\\\"$(SVN_VERSION)\\\"
+    RENDCFLAGS=$(NOTSHLIBCFLAGS)
 endif
 
 define DO_CC
@@ -536,25 +545,25 @@ $(echo_cmd) "CC $<"
 $(Q)$(CC) $(NOTSHLIBCFLAGS) $(CFLAGS) -o $@ -c $<
 endef
 
+define DO_REND_CC
+$(echo_cmd) "REND_CC $<"
+$(Q)$(CC) $(RENDCFLAGS) $(CFLAGS) -o $@ -c $<
+endef
+
+define DO_REF_STR
+$(echo_cmd) "REF_STR $<"
+$(Q)rm -f $@
+$(Q)$(STRINGIFY) $< $@
+endef
+
 define DO_BOT_CC
 $(echo_cmd) "BOT_CC $<"
 $(Q)$(CC) $(NOTSHLIBCFLAGS) $(CFLAGS) $(BOTCFLAGS) -DBOTLIB -o $@ -c $<
 endef
 
-ifeq ($(GENERATE_DEPENDENCIES),1)
-  DO_QVM_DEP=cat $(@:%.o=%.d) | sed -e 's/\.o/\.asm/g' >> $(@:%.o=%.d)
-endif
-
 define DO_SHLIB_CC
 $(echo_cmd) "SHLIB_CC $<"
 $(Q)$(CC) $(CFLAGS) $(SHLIBCFLAGS) -o $@ -c $<
-$(Q)$(DO_QVM_DEP)
-endef
-
-define DO_SHLIB_CC_MISSIONPACK
-$(echo_cmd) "SHLIB_CC_MISSIONPACK $<"
-$(Q)$(CC) -DMISSIONPACK $(CFLAGS) $(SHLIBCFLAGS) -o $@ -c $<
-$(Q)$(DO_QVM_DEP)
 endef
 
 define DO_AS
@@ -572,6 +581,9 @@ $(echo_cmd) "WINDRES $<"
 $(Q)$(WINDRES) -i $< -o $@
 endef
 
+ifndef SHLIBNAME
+  SHLIBNAME=$(ARCH).$(SHLIBEXT)
+endif
 
 #############################################################################
 # MAIN TARGETS
@@ -581,10 +593,31 @@ default: release
 all: debug release
 
 debug:
-	@$(MAKE) targets B=$(BD) CFLAGS="$(CFLAGS) $(DEBUG_CFLAGS)" V=$(V)
+	@$(MAKE) targets B=$(BD) CFLAGS="$(CFLAGS) $(DEBUG_CFLAGS)" LDFLAGS="$(LDFLAGS) $(DEBUG_LDFLAGS)" V=$(V)
 
 release:
 	@$(MAKE) targets B=$(BR) CFLAGS="$(CFLAGS) $(RELEASE_CFLAGS)" V=$(V)
+
+define ADD_COPY_TARGET
+TARGETS += $2
+$2: $1
+	$(echo_cmd) "CP $$<"
+	@cp $1 $2
+endef
+
+# These functions allow us to generate rules for copying a list of files
+# into the base directory of the build; this is useful for bundling libs,
+# README files or whatever else
+define GENERATE_COPY_TARGETS
+$(foreach FILE,$1, \
+  $(eval $(call ADD_COPY_TARGET, \
+    $(FILE), \
+    $(addprefix $(B)/,$(notdir $(FILE))))))
+endef
+
+ifneq ($(BUILD_CLIENT),0)
+  $(call GENERATE_COPY_TARGETS,$(CLIENT_EXTRA_FILES))
+endif
 
 # Create the build directories and tools, print out
 # an informational message, then start building
@@ -622,11 +655,219 @@ makedirs:
 	@if [ ! -d $(BUILD_DIR) ];then $(MKDIR) $(BUILD_DIR);fi
 	@if [ ! -d $(B) ];then $(MKDIR) $(B);fi
 	@if [ ! -d $(B)/client ];then $(MKDIR) $(B)/client;fi
+	@if [ ! -d $(B)/rend1 ];then $(MKDIR) $(B)/rend1;fi
+	@if [ ! -d $(B)/rend2 ];then $(MKDIR) $(B)/rend2;fi
+	@if [ ! -d $(B)/rend2/glsl ];then $(MKDIR) $(B)/rend2/glsl;fi
+	@if [ ! -d $(B)/rendv ];then $(MKDIR) $(B)/rendv;fi
 	@if [ ! -d $(B)/ded ];then $(MKDIR) $(B)/ded;fi
 
 #############################################################################
 # CLIENT/SERVER
 #############################################################################
+
+Q3REND1OBJ = \
+  $(B)/rend1/tr_animation.o \
+  $(B)/rend1/tr_arb.o \
+  $(B)/rend1/tr_backend.o \
+  $(B)/rend1/tr_bsp.o \
+  $(B)/rend1/tr_cmds.o \
+  $(B)/rend1/tr_curve.o \
+  $(B)/rend1/tr_flares.o \
+  $(B)/rend1/tr_font.o \
+  $(B)/rend1/tr_image.o \
+  $(B)/rend1/tr_image_png.o \
+  $(B)/rend1/tr_image_jpg.o \
+  $(B)/rend1/tr_image_bmp.o \
+  $(B)/rend1/tr_image_tga.o \
+  $(B)/rend1/tr_image_pcx.o \
+  $(B)/rend1/tr_init.o \
+  $(B)/rend1/tr_light.o \
+  $(B)/rend1/tr_main.o \
+  $(B)/rend1/tr_marks.o \
+  $(B)/rend1/tr_mesh.o \
+  $(B)/rend1/tr_model.o \
+  $(B)/rend1/tr_model_iqm.o \
+  $(B)/rend1/tr_noise.o \
+  $(B)/rend1/tr_scene.o \
+  $(B)/rend1/tr_shade.o \
+  $(B)/rend1/tr_shade_calc.o \
+  $(B)/rend1/tr_shader.o \
+  $(B)/rend1/tr_shadows.o \
+  $(B)/rend1/tr_sky.o \
+  $(B)/rend1/tr_surface.o \
+  $(B)/rend1/tr_vbo.o \
+  $(B)/rend1/tr_world.o
+
+ifneq ($(USE_RENDERER_DLOPEN), 0)
+  Q3REND1OBJ += \
+    $(B)/rend1/q_shared.o \
+    $(B)/rend1/puff.o \
+    $(B)/rend1/q_math.o
+endif
+
+Q3REND2OBJ = \
+  $(B)/rend2/tr_animation.o \
+  $(B)/rend2/tr_backend.o \
+  $(B)/rend2/tr_bsp.o \
+  $(B)/rend2/tr_cmds.o \
+  $(B)/rend2/tr_curve.o \
+  $(B)/rend2/tr_dsa.o \
+  $(B)/rend2/tr_extramath.o \
+  $(B)/rend2/tr_extensions.o \
+  $(B)/rend2/tr_fbo.o \
+  $(B)/rend2/tr_flares.o \
+  $(B)/rend2/tr_font.o \
+  $(B)/rend2/tr_glsl.o \
+  $(B)/rend2/tr_image.o \
+  $(B)/rend2/tr_image_bmp.o \
+  $(B)/rend2/tr_image_jpg.o \
+  $(B)/rend2/tr_image_pcx.o \
+  $(B)/rend2/tr_image_png.o \
+  $(B)/rend2/tr_image_tga.o \
+  $(B)/rend2/tr_image_dds.o \
+  $(B)/rend2/tr_init.o \
+  $(B)/rend2/tr_light.o \
+  $(B)/rend2/tr_main.o \
+  $(B)/rend2/tr_marks.o \
+  $(B)/rend2/tr_mesh.o \
+  $(B)/rend2/tr_model.o \
+  $(B)/rend2/tr_model_iqm.o \
+  $(B)/rend2/tr_noise.o \
+  $(B)/rend2/tr_postprocess.o \
+  $(B)/rend2/tr_scene.o \
+  $(B)/rend2/tr_shade.o \
+  $(B)/rend2/tr_shade_calc.o \
+  $(B)/rend2/tr_shader.o \
+  $(B)/rend2/tr_shadows.o \
+  $(B)/rend2/tr_sky.o \
+  $(B)/rend2/tr_surface.o \
+  $(B)/rend2/tr_vbo.o \
+  $(B)/rend2/tr_world.o
+
+ifneq ($(USE_RENDERER_DLOPEN), 0)
+  Q3REND2OBJ += \
+    $(B)/rend2/q_shared.o \
+    $(B)/rend2/puff.o \
+    $(B)/rend2/q_math.o
+endif
+
+Q3REND2STROBJ = \
+  $(B)/rend2/glsl/bokeh_fp.o \
+  $(B)/rend2/glsl/bokeh_vp.o \
+  $(B)/rend2/glsl/calclevels4x_fp.o \
+  $(B)/rend2/glsl/calclevels4x_vp.o \
+  $(B)/rend2/glsl/depthblur_fp.o \
+  $(B)/rend2/glsl/depthblur_vp.o \
+  $(B)/rend2/glsl/dlight_fp.o \
+  $(B)/rend2/glsl/dlight_vp.o \
+  $(B)/rend2/glsl/down4x_fp.o \
+  $(B)/rend2/glsl/down4x_vp.o \
+  $(B)/rend2/glsl/fogpass_fp.o \
+  $(B)/rend2/glsl/fogpass_vp.o \
+  $(B)/rend2/glsl/generic_fp.o \
+  $(B)/rend2/glsl/generic_vp.o \
+  $(B)/rend2/glsl/lightall_fp.o \
+  $(B)/rend2/glsl/lightall_vp.o \
+  $(B)/rend2/glsl/pshadow_fp.o \
+  $(B)/rend2/glsl/pshadow_vp.o \
+  $(B)/rend2/glsl/shadowfill_fp.o \
+  $(B)/rend2/glsl/shadowfill_vp.o \
+  $(B)/rend2/glsl/shadowmask_fp.o \
+  $(B)/rend2/glsl/shadowmask_vp.o \
+  $(B)/rend2/glsl/ssao_fp.o \
+  $(B)/rend2/glsl/ssao_vp.o \
+  $(B)/rend2/glsl/texturecolor_fp.o \
+  $(B)/rend2/glsl/texturecolor_vp.o \
+  $(B)/rend2/glsl/tonemap_fp.o \
+  $(B)/rend2/glsl/tonemap_vp.o
+
+Q3RENDVOBJ = \
+  $(B)/rendv/tr_animation.o \
+  $(B)/rendv/tr_backend.o \
+  $(B)/rendv/tr_bsp.o \
+  $(B)/rendv/tr_cmds.o \
+  $(B)/rendv/tr_curve.o \
+  $(B)/rendv/tr_font.o \
+  $(B)/rendv/tr_image.o \
+  $(B)/rendv/tr_image_png.o \
+  $(B)/rendv/tr_image_jpg.o \
+  $(B)/rendv/tr_image_bmp.o \
+  $(B)/rendv/tr_image_tga.o \
+  $(B)/rendv/tr_image_pcx.o \
+  $(B)/rendv/tr_init.o \
+  $(B)/rendv/tr_light.o \
+  $(B)/rendv/tr_main.o \
+  $(B)/rendv/tr_marks.o \
+  $(B)/rendv/tr_mesh.o \
+  $(B)/rendv/tr_model.o \
+  $(B)/rendv/tr_model_iqm.o \
+  $(B)/rendv/tr_noise.o \
+  $(B)/rendv/tr_scene.o \
+  $(B)/rendv/tr_shade.o \
+  $(B)/rendv/tr_shade_calc.o \
+  $(B)/rendv/tr_shader.o \
+  $(B)/rendv/tr_shadows.o \
+  $(B)/rendv/tr_sky.o \
+  $(B)/rendv/tr_surface.o \
+  $(B)/rendv/tr_world.o \
+  $(B)/rendv/vk.o \
+  $(B)/rendv/vk_flares.o \
+  $(B)/rendv/vk_vbo.o \
+
+ifneq ($(USE_RENDERER_DLOPEN), 0)
+  Q3RENDVOBJ += \
+    $(B)/rendv/q_shared.o \
+    $(B)/rendv/puff.o \
+    $(B)/rendv/q_math.o
+endif
+
+JPGOBJ = \
+  $(B)/client/jaricom.o \
+  $(B)/client/jcapimin.o \
+  $(B)/client/jcapistd.o \
+  $(B)/client/jcarith.o \
+  $(B)/client/jccoefct.o  \
+  $(B)/client/jccolor.o \
+  $(B)/client/jcdctmgr.o \
+  $(B)/client/jchuff.o   \
+  $(B)/client/jcinit.o \
+  $(B)/client/jcmainct.o \
+  $(B)/client/jcmarker.o \
+  $(B)/client/jcmaster.o \
+  $(B)/client/jcomapi.o \
+  $(B)/client/jcparam.o \
+  $(B)/client/jcprepct.o \
+  $(B)/client/jcsample.o \
+  $(B)/client/jctrans.o \
+  $(B)/client/jdapimin.o \
+  $(B)/client/jdapistd.o \
+  $(B)/client/jdarith.o \
+  $(B)/client/jdatadst.o \
+  $(B)/client/jdatasrc.o \
+  $(B)/client/jdcoefct.o \
+  $(B)/client/jdcolor.o \
+  $(B)/client/jddctmgr.o \
+  $(B)/client/jdhuff.o \
+  $(B)/client/jdinput.o \
+  $(B)/client/jdmainct.o \
+  $(B)/client/jdmarker.o \
+  $(B)/client/jdmaster.o \
+  $(B)/client/jdmerge.o \
+  $(B)/client/jdpostct.o \
+  $(B)/client/jdsample.o \
+  $(B)/client/jdtrans.o \
+  $(B)/client/jerror.o \
+  $(B)/client/jfdctflt.o \
+  $(B)/client/jfdctfst.o \
+  $(B)/client/jfdctint.o \
+  $(B)/client/jidctflt.o \
+  $(B)/client/jidctfst.o \
+  $(B)/client/jidctint.o \
+  $(B)/client/jmemmgr.o \
+  $(B)/client/jmemnobs.o \
+  $(B)/client/jquant1.o \
+  $(B)/client/jquant2.o \
+  $(B)/client/jutils.o
 
 Q3OBJ = \
   $(B)/client/cl_cgame.o \
@@ -640,6 +881,7 @@ Q3OBJ = \
   $(B)/client/cl_scrn.o \
   $(B)/client/cl_ui.o \
   $(B)/client/cl_avi.o \
+  $(B)/client/cl_jpeg.o \
   \
   $(B)/client/cm_load.o \
   $(B)/client/cm_patch.o \
@@ -670,7 +912,6 @@ Q3OBJ = \
   $(B)/client/snd_main.o \
   $(B)/client/snd_codec.o \
   $(B)/client/snd_codec_wav.o \
-  $(B)/client/snd_codec_ogg.o \
   \
   $(B)/client/sv_bot.o \
   $(B)/client/sv_ccmds.o \
@@ -718,86 +959,24 @@ Q3OBJ = \
   $(B)/client/l_memory.o \
   $(B)/client/l_precomp.o \
   $(B)/client/l_script.o \
-  $(B)/client/l_struct.o \
-  \
-  $(B)/client/jaricom.o \
-  $(B)/client/jcapimin.o \
-  $(B)/client/jcapistd.o \
-  $(B)/client/jcarith.o \
-  $(B)/client/jccoefct.o  \
-  $(B)/client/jccolor.o \
-  $(B)/client/jcdctmgr.o \
-  $(B)/client/jchuff.o   \
-  $(B)/client/jcinit.o \
-  $(B)/client/jcmainct.o \
-  $(B)/client/jcmarker.o \
-  $(B)/client/jcmaster.o \
-  $(B)/client/jcomapi.o \
-  $(B)/client/jcparam.o \
-  $(B)/client/jcprepct.o \
-  $(B)/client/jcsample.o \
-  $(B)/client/jctrans.o \
-  $(B)/client/jdapimin.o \
-  $(B)/client/jdapistd.o \
-  $(B)/client/jdarith.o \
-  $(B)/client/jdatadst.o \
-  $(B)/client/jdatasrc.o \
-  $(B)/client/jdcoefct.o \
-  $(B)/client/jdcolor.o \
-  $(B)/client/jddctmgr.o \
-  $(B)/client/jdhuff.o \
-  $(B)/client/jdinput.o \
-  $(B)/client/jdmainct.o \
-  $(B)/client/jdmarker.o \
-  $(B)/client/jdmaster.o \
-  $(B)/client/jdmerge.o \
-  $(B)/client/jdpostct.o \
-  $(B)/client/jdsample.o \
-  $(B)/client/jdtrans.o \
-  $(B)/client/jerror.o \
-  $(B)/client/jfdctflt.o \
-  $(B)/client/jfdctfst.o \
-  $(B)/client/jfdctint.o \
-  $(B)/client/jidctflt.o \
-  $(B)/client/jidctfst.o \
-  $(B)/client/jidctint.o \
-  $(B)/client/jmemmgr.o \
-  $(B)/client/jmemnobs.o \
-  $(B)/client/jquant1.o \
-  $(B)/client/jquant2.o \
-  $(B)/client/jutils.o \
-  \
-  $(B)/client/tr_animation.o \
-  $(B)/client/tr_arb.o \
-  $(B)/client/tr_backend.o \
-  $(B)/client/tr_bsp.o \
-  $(B)/client/tr_cmds.o \
-  $(B)/client/tr_curve.o \
-  $(B)/client/tr_flares.o \
-  $(B)/client/tr_font.o \
-  $(B)/client/tr_image.o \
-  $(B)/client/tr_image_png.o \
-  $(B)/client/tr_image_jpg.o \
-  $(B)/client/tr_image_bmp.o \
-  $(B)/client/tr_image_tga.o \
-  $(B)/client/tr_image_pcx.o \
-  $(B)/client/tr_init.o \
-  $(B)/client/tr_light.o \
-  $(B)/client/tr_main.o \
-  $(B)/client/tr_marks.o \
-  $(B)/client/tr_mesh.o \
-  $(B)/client/tr_model.o \
-  $(B)/client/tr_model_iqm.o \
-  $(B)/client/tr_noise.o \
-  $(B)/client/tr_scene.o \
-  $(B)/client/tr_shade.o \
-  $(B)/client/tr_shade_calc.o \
-  $(B)/client/tr_shader.o \
-  $(B)/client/tr_shadows.o \
-  $(B)/client/tr_sky.o \
-  $(B)/client/tr_surface.o \
-  $(B)/client/tr_vbo.o \
-  $(B)/client/tr_world.o \
+  $(B)/client/l_struct.o
+
+ifneq ($(USE_SYSTEM_JPEG),1)
+  Q3OBJ += $(JPGOBJ)
+endif
+
+ifneq ($(USE_RENDERER_DLOPEN),1)
+  ifeq ($(USE_VULKAN),1)
+    Q3OBJ += $(Q3RENDVOBJ)
+  else
+    ifeq ($(USE_OPENGL2),1)
+      Q3OBJ += $(Q3REND2OBJ)
+      Q3OBJ += $(Q3REND2STROBJ)
+    else
+      Q3OBJ += $(Q3REND1OBJ)
+    endif
+  endif
+endif
 
 ifeq ($(ARCH),x86)
 ifndef MINGW
@@ -810,9 +989,17 @@ endif
 ifeq ($(HAVE_VM_COMPILED),true)
   ifeq ($(ARCH),x86)
     Q3OBJ += $(B)/client/vm_x86.o
+    Q3OBJ += $(B)/client/vm_x86_ng.o
   endif
   ifeq ($(ARCH),x86_64)
     Q3OBJ += $(B)/client/vm_x86.o
+    Q3OBJ += $(B)/client/vm_x86_ng.o
+  endif
+  ifeq ($(ARCH),arm)
+    Q3OBJ += $(B)/client/vm_armv7l.o
+  endif
+  ifeq ($(ARCH),aarch64)
+    Q3OBJ += $(B)/client/vm_aarch64.o
   endif
 endif
 
@@ -821,42 +1008,87 @@ ifeq ($(USE_CURL),1)
 endif
 
 ifdef MINGW
+
   Q3OBJ += \
-    $(B)/client/win_gamma.o \
-    $(B)/client/win_glimp.o \
-    $(B)/client/win_input.o \
     $(B)/client/win_main.o \
-    $(B)/client/win_minimize.o \
-    $(B)/client/win_qgl.o \
     $(B)/client/win_shared.o \
-    $(B)/client/win_snd.o \
     $(B)/client/win_syscon.o \
-    $(B)/client/win_wndproc.o \
     $(B)/client/win_resource.o
-else
+
+ifeq ($(USE_SDL),1)
+    Q3OBJ += \
+        $(B)/client/sdl_glimp.o \
+        $(B)/client/sdl_gamma.o \
+        $(B)/client/sdl_input.o \
+        $(B)/client/sdl_snd.o
+else # !USE_SDL
+    Q3OBJ += \
+        $(B)/client/win_gamma.o \
+        $(B)/client/win_glimp.o \
+        $(B)/client/win_input.o \
+        $(B)/client/win_minimize.o \
+        $(B)/client/win_qgl.o \
+        $(B)/client/win_snd.o \
+        $(B)/client/win_wndproc.o
+ifeq ($(USE_VULKAN_API),1)
+    Q3OBJ += \
+        $(B)/client/win_qvk.o
+endif
+endif # !USE_SDL
+
+else # !MINGW
+
   Q3OBJ += \
     $(B)/client/unix_main.o \
     $(B)/client/unix_shared.o \
-    $(B)/client/linux_signals.o \
-    $(B)/client/linux_glimp.o \
-    $(B)/client/linux_qgl.o \
-    $(B)/client/linux_snd.o \
-    $(B)/client/x11_dga.o \
-    $(B)/client/x11_randr.o \
-    $(B)/client/x11_vidmode.o
+    $(B)/client/linux_signals.o
 
-#  ifeq ($(PLATFORM),linux)
-#    Q3OBJ += $(B)/client/linux_joystick.o
-#  endif
-
+ifeq ($(USE_SDL),1)
+    Q3OBJ += \
+        $(B)/client/sdl_glimp.o \
+        $(B)/client/sdl_gamma.o \
+        $(B)/client/sdl_input.o \
+        $(B)/client/sdl_snd.o
+else # !USE_SDL
+    Q3OBJ += \
+        $(B)/client/linux_glimp.o \
+        $(B)/client/linux_qgl.o \
+        $(B)/client/linux_snd.o \
+        $(B)/client/x11_dga.o \
+        $(B)/client/x11_randr.o \
+        $(B)/client/x11_vidmode.o
+ifeq ($(USE_VULKAN_API),1)
+    Q3OBJ += \
+        $(B)/client/linux_qvk.o
 endif
+endif # !USE_SDL
+
+endif # !MINGW
+
+# client binary
 
 $(B)/$(TARGET_CLIENT): $(Q3OBJ)
 	$(echo_cmd) "LD $@"
 	$(Q)$(CC) -o $@ $(Q3OBJ) $(CLIENT_LDFLAGS) \
 		$(LDFLAGS)
-	$(STRIP) $@
 
+# modular renderers
+
+$(B)/$(TARGET_REND1): $(Q3REND1OBJ)
+	$(echo_cmd) "LD $@"
+	$(Q)$(CC) -o $@ $(Q3REND1OBJ) $(SHLIBCFLAGS) $(SHLIBLDFLAGS)
+
+$(STRINGIFY): $(MOUNT_DIR)/renderer2/stringify.c
+	$(echo_cmd) "LD $@"
+	$(Q)$(CC) -o $@ $(MOUNT_DIR)/renderer2/stringify.c $(LDFLAGS)
+
+$(B)/$(TARGET_REND2): $(Q3REND2OBJ) $(Q3REND2STROBJ)
+	$(echo_cmd) "LD $@"
+	$(Q)$(CC) -o $@ $(Q3REND2OBJ) $(Q3REND2STROBJ) $(SHLIBCFLAGS) $(SHLIBLDFLAGS)
+
+$(B)/$(TARGET_RENDV): $(Q3RENDVOBJ)
+	$(echo_cmd) "LD $@"
+	$(Q)$(CC) -o $@ $(Q3RENDVOBJ) $(SHLIBCFLAGS) $(SHLIBLDFLAGS)
 
 #############################################################################
 # DEDICATED SERVER
@@ -945,16 +1177,23 @@ endif
 ifeq ($(HAVE_VM_COMPILED),true)
   ifeq ($(ARCH),x86)
     Q3DOBJ += $(B)/ded/vm_x86.o
+    Q3DOBJ += $(B)/ded/vm_x86_ng.o
   endif
   ifeq ($(ARCH),x86_64)
     Q3DOBJ += $(B)/ded/vm_x86.o
+    Q3DOBJ += $(B)/ded/vm_x86_ng.o
+  endif
+  ifeq ($(ARCH),arm)
+    Q3DOBJ += $(B)/ded/vm_armv7l.o
+  endif
+  ifeq ($(ARCH),aarch64)
+    Q3DOBJ += $(B)/ded/vm_aarch64.o
   endif
 endif
 
 $(B)/$(TARGET_SERVER): $(Q3DOBJ)
 	$(echo_cmd) "LD $@"
 	$(Q)$(CC) -o $@ $(Q3DOBJ) $(LDFLAGS)
-	$(STRIP) $@
 
 #############################################################################
 ## CLIENT/SERVER RULES
@@ -978,8 +1217,41 @@ $(B)/client/%.o: $(BLIBDIR)/%.c
 $(B)/client/%.o: $(JPDIR)/%.c
 	$(DO_CC)
 
-$(B)/client/%.o: $(RDIR)/%.c
+$(B)/client/%.o: $(SDLDIR)/%.c
 	$(DO_CC)
+
+$(B)/rend1/%.o: $(R1DIR)/%.c
+	$(DO_REND_CC)
+
+$(B)/rend1/%.o: $(RCDIR)/%.c
+	$(DO_REND_CC)
+
+$(B)/rend1/%.o: $(CMDIR)/%.c
+	$(DO_REND_CC)
+
+$(B)/rend2/glsl/%.c: $(R2DIR)/glsl/%.glsl $(STRINGIFY)
+	$(DO_REF_STR)
+
+$(B)/rend2/glsl/%.o: $(B)/renderer2/glsl/%.c
+	$(DO_REND_CC)
+
+$(B)/rend2/%.o: $(R2DIR)/%.c
+	$(DO_REND_CC)
+
+$(B)/rend2/%.o: $(RCDIR)/%.c
+	$(DO_REND_CC)
+
+$(B)/rend2/%.o: $(CMDIR)/%.c
+	$(DO_REND_CC)
+
+$(B)/rendv/%.o: $(RVDIR)/%.c
+	$(DO_REND_CC)
+
+$(B)/rendv/%.o: $(RCDIR)/%.c
+	$(DO_REND_CC)
+
+$(B)/rendv/%.o: $(CMDIR)/%.c
+	$(DO_REND_CC)
 
 $(B)/client/%.o: $(UDIR)/%.c
 	$(DO_CC)
@@ -989,7 +1261,6 @@ $(B)/client/%.o: $(W32DIR)/%.c
 
 $(B)/client/%.o: $(W32DIR)/%.rc
 	$(DO_WINDRES)
-
 
 $(B)/ded/%.o: $(ADIR)/%.s
 	$(DO_AS)
@@ -1006,9 +1277,6 @@ $(B)/ded/%.o: $(BLIBDIR)/%.c
 $(B)/ded/%.o: $(UDIR)/%.c
 	$(DO_DED_CC)
 
-$(B)/ded/%.o: $(NDIR)/%.c
-	$(DO_DED_CC)
-
 $(B)/ded/%.o: $(W32DIR)/%.c
 	$(DO_DED_CC)
 
@@ -1019,23 +1287,15 @@ $(B)/ded/%.o: $(W32DIR)/%.rc
 # MISC
 #############################################################################
 
-copyfiles: release
-	@if [ ! -d $(COPYDIR)/baseq3 ]; then echo "You need to set COPYDIR to where your Quake3 data is!"; fi
-	-$(MKDIR) -p -m 0755 $(COPYDIR)/baseq3
-	-$(MKDIR) -p -m 0755 $(COPYDIR)/missionpack
-
-ifneq ($(BUILD_CLIENT),0)
-	$(INSTALL) -s -m 0755 $(BR)/$(TARGET_CLIENT) $(COPYDIR)/$(TARGET_CLIENT)
-endif
-
-ifneq ($(BUILD_SERVER),0)
-	@if [ -f $(BR)/$(TARGET_SERVER) ]; then \
-		$(INSTALL) -s -m 0755 $(BR)/$(TARGET_SERVER) $(COPYDIR)/$(TARGET_SERVER); \
-	fi
-endif
+install: release
+	@for i in $(TARGETS); do \
+		if [ -f $(BR)$$i ]; then \
+			$(INSTALL) -D -m 0755 "$(BR)/$$i" "$(DESTDIR)$$i"; \
+			$(STRIP) "$(DESTDIR)$$i"; \
+		fi \
+	done
 
 clean: clean-debug clean-release
-	@$(MAKE) -C $(LOKISETUPDIR) clean
 
 clean2:
 	@echo "CLEAN $(B)"
@@ -1044,28 +1304,14 @@ clean2:
 	@rm -f $(TARGETS)
 
 clean-debug:
-	@$(MAKE) clean2 B=$(BD)
+	@rm -rf $(BD)
 
 clean-release:
-	@$(MAKE) clean2 B=$(BR)
+	@echo $(BR)
+	@rm -rf $(BR)
 
 distclean: clean
 	@rm -rf $(BUILD_DIR)
-
-installer: release
-	@$(MAKE) VERSION=$(VERSION) -C $(LOKISETUPDIR) V=$(V)
-
-dist:
-	rm -rf quake3-$(SVN_VERSION)
-	svn export . quake3-$(SVN_VERSION)
-	tar --owner=root --group=root --force-local -cjf quake3-$(SVN_VERSION).tar.bz2 quake3-$(SVN_VERSION)
-	rm -rf quake3-$(SVN_VERSION)
-
-dist2:
-	rm -rf quake3-1.32e-src
-	svn export . quake3-1.32e-src
-	zip -9 -r quake3-1.32e-src.zip quake3-1.32e-src/*
-	rm -rf quake3-1.32e-src
 
 #############################################################################
 # DEPENDENCIES
@@ -1073,10 +1319,10 @@ dist2:
 
 D_FILES=$(shell find . -name '*.d')
 
-#ifneq ($(strip $(D_FILES)),)
- # include $(D_FILES)
-#endif
+ifneq ($(strip $(D_FILES)),)
+ include $(D_FILES)
+endif
 
 .PHONY: all clean clean2 clean-debug clean-release copyfiles \
-	debug default dist distclean installer makedirs release \
+	debug default dist distclean makedirs release \
 	targets tools toolsclean

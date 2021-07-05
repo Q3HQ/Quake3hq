@@ -38,14 +38,13 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include <sys/mman.h>
 #include <errno.h>
 #include <libgen.h> // dirname
-#ifdef __linux__ // rb010123
-  #include <mntent.h>
-#endif
 
 #include <dlfcn.h>
 
 #ifdef __linux__
+#ifdef __GLIBC__
   #include <fpu_control.h> // bk001213 - force dumps on divide by zero
+#endif
 #endif
 
 #if defined(__sun)
@@ -57,7 +56,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #include "../qcommon/q_shared.h"
 #include "../qcommon/qcommon.h"
-#include "../renderer/tr_public.h"
+#include "../renderercommon/tr_public.h"
 
 #include "linux_local.h" // bk001204
 
@@ -110,7 +109,7 @@ tty_err Sys_ConsoleInputInit( void );
 // General routines
 // =======================================================================
 
-// bk001207 
+// bk001207
 #define MEM_THRESHOLD 96*1024*1024
 
 /*
@@ -131,22 +130,6 @@ void Sys_BeginProfiling( void )
 {
 
 }
-
-
-/*
-=================
-Sys_In_Restart_f
-
-Restart the input subsystem
-=================
-*/
-#ifndef DEDICATED
-void Sys_In_Restart_f( void )
-{
-	IN_Shutdown();
-	IN_Init();
-}
-#endif
 
 
 // =============================================================
@@ -249,7 +232,7 @@ void Sys_ConsoleInputShutdown( void )
 
 	stdin_active = qfalse;
 	ttycon_on = qfalse;
-	
+
 	ttycon_hide = 0;
 }
 
@@ -269,16 +252,16 @@ void CON_SigCont( int signum )
 void CON_SigTStp( int signum )
 {
 	sigset_t mask;
-	
+
 	tty_FlushIn();
 	Sys_ConsoleInputShutdown();
 
 	sigemptyset( &mask );
 	sigaddset( &mask, SIGTSTP );
 	sigprocmask( SIG_UNBLOCK, &mask, NULL );
-	
+
 	signal( SIGTSTP, SIG_DFL );
-	
+
 	kill( getpid(),  SIGTSTP );
 }
 
@@ -294,7 +277,7 @@ void Sys_Exit( int code )
 	Sys_ConsoleInputShutdown();
 
 #ifdef NDEBUG // regular behavior
-	// We can't do this 
+	// We can't do this
 	//  as long as GL DLL's keep installing with atexit...
 	//exit(ex);
 	_exit( code );
@@ -318,21 +301,15 @@ void Sys_Quit( void )
 
 void Sys_Init( void )
 {
-
-#ifndef DEDICATED
-	Cmd_AddCommand( "in_restart", Sys_In_Restart_f );
-#endif
-
 	Cvar_Set( "arch", OS_STRING " " ARCH_STRING );
-
 	//IN_Init();   // rcg08312005 moved into glimp.
 }
 
 
 void Sys_Error( const char *format, ... )
 {
-	va_list     argptr;
-	char        text[1024];
+	va_list argptr;
+	char text[1024];
 
 	// change stdin to non blocking
 	// NOTE TTimo not sure how well that goes with tty console mode
@@ -384,7 +361,7 @@ tty_err Sys_ConsoleInputInit( void )
 
 	// If SIGCONT is received, reinitialize console
 	signal( SIGCONT, CON_SigCont );
-	
+
 	if ( signal( SIGTSTP, SIG_IGN ) == SIG_DFL )
 	{
 		signal( SIGTSTP, CON_SigTStp );
@@ -588,7 +565,7 @@ char *Sys_ConsoleInput( void )
 
 		len = read( STDIN_FILENO, text, sizeof( text ) );
 		if ( len == 0 ) // eof!
-		{ 
+		{
 			fcntl( STDIN_FILENO, F_SETFL, stdin_flags );
 			stdin_active = qfalse;
 			return NULL;
@@ -620,39 +597,8 @@ Platform-dependent event handling
 void Sys_SendKeyEvents( void )
 {
 #ifndef DEDICATED
-	HandleX11Events();
+	HandleEvents();
 #endif
-}
-
-
-/*****************************************************************************/
-
-char *do_dlerror( void )
-{
-	return dlerror();
-}
-
-
-/*
-=================
-Sys_UnloadDll
-=================
-*/
-void Sys_UnloadDll( void *dllHandle ) {
-
-	if ( !dllHandle )
-	{
-		Com_Printf( "Sys_UnloadDll(NULL)\n" );
-		return;
-	}
-
-	dlclose( dllHandle );
-	{
-		const char* err; // rb010123 - now const
-		err = dlerror();
-		if ( err != NULL )
-			Com_Printf ( "Sys_UnloadDLL failed on dlclose: \"%s\"!\n", err );
-	}
 }
 
 
@@ -660,7 +606,7 @@ void Sys_UnloadDll( void *dllHandle ) {
 ==================
 Sys_Sleep
 
-Block execution for msec or until input is recieved.
+Block execution for msec or until input is received.
 ==================
 */
 void Sys_Sleep( int msec ) {
@@ -681,12 +627,12 @@ void Sys_Sleep( int msec ) {
 				timeout.tv_sec = msec / 1000;
 				timeout.tv_usec = (msec % 1000) * 1000;
 				res = select( STDIN_FILENO + 1, &fdset, NULL, NULL, &timeout );
-			} while ( res == 0 && NET_Sleep( 10, 0 ) );
+			} while ( res == 0 && NET_Sleep( 10 * 1000 ) );
 		} else {
 			// can happen only if no map loaded
 			// which means we totally stuck as stdin is also disabled :P
 			//usleep( 300 * 1000 );
-			while ( NET_Sleep( 3000, 0 ) )
+			while ( NET_Sleep( 3000 * 1000 ) )
 				;
 		}
 		return;
@@ -702,114 +648,6 @@ void Sys_Sleep( int msec ) {
 		usleep( msec * 1000 );
 	}
 }
-
-
-/*
-=================
-Sys_LoadDll
-
-Used to load a development dll instead of a virtual machine
-TTimo:
-changed the load procedure to match VFS logic, and allow developer use
-#1 look down current path
-#2 look in fs_homepath
-#3 look in fs_basepath
-=================
-*/
-static void* try_dlopen( const char* base, const char* gamedir, const char* fname )
-{
-	void* libHandle;
-	char* fn;
-
-	fn = FS_BuildOSPath( base, gamedir, fname );
-	Com_Printf( "Sys_LoadDll(%s)... \n", fn );
-
-	libHandle = dlopen( fn, RTLD_NOW );
-
-	if( !libHandle ) 
-	{
-    	Com_Printf( "Sys_LoadDll(%s) failed:\n\"%s\"\n", fn, do_dlerror() );
-		return NULL;
-	}
-
-	Com_Printf ( "Sys_LoadDll(%s): succeeded ...\n", fn );
-
-	return libHandle;
-}
-
-
-void *Sys_LoadDll( const char *name, dllSyscall_t *entryPoint, dllSyscall_t systemcalls )
-{
-	void		*libHandle;
-	dllEntry_t	dllEntry;
-#ifdef DEBUG
-	char		currpath[MAX_OSPATH];
-#endif
-	char		fname[MAX_OSPATH];
-	const char	*basepath;
-	const char	*homepath;
-	const char	*gamedir;
-	const char	*err = NULL;
-
-	assert( name ); // let's have some paranoia
-
-	snprintf( fname, sizeof( fname ), "%s" ARCH_STRING DLL_EXT, name );
-
-	// TODO: use fs_searchpaths from files.c
-	basepath = Cvar_VariableString( "fs_basepath" );
-	homepath = Cvar_VariableString( "fs_homepath" );
-	gamedir = Cvar_VariableString( "fs_game" );
-	if ( !*gamedir ) {
-		gamedir = Cvar_VariableString( "fs_basegame" );
-	}
-
-#ifdef DEBUG
-	if ( getcwd( currpath, sizeof( currpath ) ) )
-		libHandle = try_dlopen( currpath, gamedir, fname );
-	else
-#endif
-	libHandle = NULL;
-
-	if ( !libHandle && homepath && homepath[0] )
-		libHandle = try_dlopen( homepath, gamedir, fname );
-
-	if( !libHandle && basepath && basepath[0] )
-		libHandle = try_dlopen( basepath, gamedir, fname );
-
-	if ( !libHandle ) 
-	{
-		Com_Printf ( "Sys_LoadDll(%s) failed dlopen() completely!\n", name );
-		return NULL;
-	}
-
-	dllEntry = dlsym( libHandle, "dllEntry" );
-	*entryPoint = dlsym( libHandle, "vmMain" );
-
-	if ( !*entryPoint || !dllEntry )
-	{
-		err = do_dlerror();
-#ifndef NDEBUG // bk001206 - in debug abort on failure
-		Com_Error ( ERR_FATAL, "Sys_LoadDll(%s) failed dlsym(vmMain):\n\"%s\" !\n", name, err );
-#else
-		Com_Printf ( "Sys_LoadDll(%s) failed dlsym(vmMain):\n\"%s\" !\n", name, err );
-#endif
-		dlclose( libHandle );
-		err = do_dlerror();
-		if ( err != NULL ) 
-		{
-			Com_Printf( "Sys_LoadDll(%s) failed dlcose:\n\"%s\"\n", name, err );
-		}
-		return NULL;
-	}
-
-	Com_Printf( "Sys_LoadDll(%s) found **vmMain** at %p\n", name, *entryPoint );
-	dllEntry( systemcalls );
-	Com_Printf( "Sys_LoadDll(%s) succeeded!\n", name );
-
-	return libHandle;
-}
-
-/*****************************************************************************/
 
 
 static struct Q3ToAnsiColorTable_s
@@ -918,6 +756,7 @@ void Sys_ConfigureFPU( void )  // bk001213 - divide by zero
 {
 #ifdef __linux__
 #ifdef __i386
+#ifdef __GLIBC__
 #ifndef NDEBUG
 	// bk0101022 - enable FPE's in debug mode
 	static int fpu_word = _FPU_DEFAULT & ~(_FPU_MASK_ZM | _FPU_MASK_IM);
@@ -936,7 +775,8 @@ void Sys_ConfigureFPU( void )  // bk001213 - divide by zero
 	static int fpu_word = _FPU_DEFAULT;
 	_FPU_SETCW( fpu_word );
 #endif // NDEBUG
-#endif // __i386 
+#endif // __GLIBC__
+#endif // __i386
 #endif // __linux
 }
 
@@ -967,28 +807,38 @@ builds because there are situations where you are likely to want
 to symlink to binaries and /not/ have the links resolved.
 =================
 */
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
 const char *Sys_BinName( const char *arg0 )
 {
-	static char   dst[ PATH_MAX ];
+	static char dst[ PATH_MAX ];
 
 #ifdef NDEBUG
 
-#ifdef __linux__
+#if defined (__linux__)
 	int n = readlink( "/proc/self/exe", dst, PATH_MAX - 1 );
 
 	if ( n >= 0 && n < PATH_MAX )
 		dst[ n ] = '\0';
 	else
 		Q_strncpyz( dst, arg0, PATH_MAX );
+#elif defined (__APPLE__)
+	uint32_t bufsize = sizeof( dst );
+
+	if ( _NSGetExecutablePath( dst, &bufsize ) == -1 )
+	{
+		Q_strncpyz( dst, arg0, PATH_MAX );
+	}
 #else
+
 #warning Sys_BinName not implemented
 	Q_strncpyz( dst, arg0, PATH_MAX );
 #endif
 
-#else
+#else // DEBUG
 	Q_strncpyz( dst, arg0, PATH_MAX );
 #endif
-
 	return dst;
 }
 
@@ -1016,6 +866,12 @@ int main( int argc, const char* argv[] )
 	char  *cmdline;
 	int   len, i;
 	tty_err	err;
+
+#ifdef __APPLE__
+	// This is passed if we are launched by double-clicking
+	if ( argc >= 2 && Q_strncmp( argv[1], "-psn", 4 ) == 0 )
+		argc = 1;
+#endif
 
 	if ( Sys_ParseArgs( argc, argv ) ) // added this for support
 		return 0;
