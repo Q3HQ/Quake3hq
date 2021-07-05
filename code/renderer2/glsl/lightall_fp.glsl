@@ -348,13 +348,6 @@ void main()
     #endif
   #endif
 
-  #if defined(USE_PARALLAXMAP) && defined(USE_PARALLAXMAP_SHADOWS)
-	offsetDir = L * tangentToWorld;
-	offsetDir.xy *= u_NormalScale.a / offsetDir.z;
-	lightColor *= LightRay(texCoords, offsetDir.xy, u_NormalMap);
-  #endif
-
-
   #if !defined(USE_LIGHT_VECTOR)
 	ambientColor = lightColor;
 	float surfNL = clamp(dot(var_Normal.xyz, L), 0.0, 1.0);
@@ -371,6 +364,12 @@ void main()
 	ambientColor = max(ambientColor - lightColor * surfNL, vec3(0.0));
   #else
 	ambientColor = var_ColorAmbient.rgb;
+  #endif
+
+  #if defined(USE_PARALLAXMAP) && defined(USE_PARALLAXMAP_SHADOWS)
+	offsetDir = L * tangentToWorld;
+	offsetDir.xy *= u_NormalScale.a / offsetDir.z;
+	lightColor *= LightRay(texCoords, offsetDir.xy, u_NormalMap);
   #endif
 
 	NL = clamp(dot(N, L), 0.0, 1.0);
