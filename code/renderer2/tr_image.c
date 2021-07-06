@@ -471,16 +471,18 @@ static void RGBAtoNormal(const byte *in, byte *out, int width, int height, qbool
 
 		for (x = 0; x < width; x++)
 		{
-			// 0 1 2
-			// 3 4 5
-			// 6 7 8
+			//  0  1  2  3  4
+			//  5  6  7  8  9
+			// 10 11 12 13 14
+			// 15 16 17 18 19
+			// 20 21 22 23 24
 
-			byte s[9];
+			byte s[25];
 			int x2, y2, i;
 			vec3_t normal;
 
 			i = 0;
-			for (y2 = -1; y2 <= 1; y2++)
+			for (y2 = -2; y2 <= 2; y2++)
 			{
 				int src_y = y + y2;
 
@@ -494,7 +496,7 @@ static void RGBAtoNormal(const byte *in, byte *out, int width, int height, qbool
 				}
 
 
-				for (x2 = -1; x2 <= 1; x2++)
+				for (x2 = -2; x2 <= 2; x2++)
 				{
 					int src_x = x + x2;
 
@@ -511,15 +513,18 @@ static void RGBAtoNormal(const byte *in, byte *out, int width, int height, qbool
 				}
 			}
 
-			normal[0] =        s[0]            -     s[2]
-						 + 2 * s[3]            - 2 * s[5]
-						 +     s[6]            -     s[8];
-
-			normal[1] =        s[0] + 2 * s[1] +     s[2]
-
-						 -     s[6] - 2 * s[7] -     s[8];
-
-			normal[2] = s[4] * 4;
+			normal[0] =  -5 * s[0]  +  -4 * s[1]  +  4 * s[3] +   5 * s[4]
+			          +  -8 * s[5]  + -10 * s[6]  + 10 * s[8] +   8 * s[9]
+			          + -10 * s[10] + -20 * s[11] + 20 * s[13] + 10 * s[14]
+			          +  -8 * s[15] + -10 * s[16] + 10 * s[18] +  8 * s[19]
+			          +  -5 * s[20] +  -4 * s[21] +  4 * s[23] +  5 * s[24];
+ 
+			normal[1] =  -5 * s[0]  +  -8 * s[1]  +  -10 * s[2] +   -8 * s[3] +  -5 * s[4]
+			          +  -4 * s[5]  + -10 * s[6]  +  -20 * s[7] +  -10 * s[8] +  -4 * s[9]
+			          +   4 * s[15] +  10 * s[16] +   20 * s[17] +  10 * s[18] +  4 * s[19]
+			          +   5 * s[20] +   8 * s[21] +   10 * s[22] +   8 * s[23] +  5 * s[24];
+ 
+			normal[2] = s[12] * 40;
 
 			if (!VectorNormalize2(normal, normal))
 			{
