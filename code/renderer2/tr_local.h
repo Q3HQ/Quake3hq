@@ -59,7 +59,7 @@ typedef unsigned int glIndex_t;
 
 #define MAX_CALC_PSHADOWS    64
 #define MAX_DRAWN_PSHADOWS    16 // do not increase past 32, because bit flags are used on surfaces
-#define PSHADOW_MAP_SIZE      512
+#define PSHADOW_MAP_SIZE      2048
 
 typedef struct cubemap_s {
 	char name[MAX_QPATH];
