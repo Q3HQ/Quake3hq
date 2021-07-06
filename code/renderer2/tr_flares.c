@@ -474,7 +474,7 @@ void RB_RenderFlares (void) {
 	qboolean	draw;
 	mat4_t    oldmodelview, oldprojection, matrix;
 
-	if ( !r_flares->integer ) {
+	if ( r_flares <= 0 ) {
 		return;
 	}
 
