@@ -2496,7 +2496,7 @@ void R_LoadEnvironmentJson(const char *baseName)
 	}
 
 	tr.numCubemaps = JSON_ArrayGetIndex(cubemapArrayJson, bufferEnd, NULL, 0);
-	tr.cubemaps = ri.Hunk_Alloc(tr.numCubemaps * sizeof(*tr.cubemaps), h_low);
+	tr.cubemaps = ri.Malloc(tr.numCubemaps * sizeof(*tr.cubemaps));
 	memset(tr.cubemaps, 0, tr.numCubemaps * sizeof(*tr.cubemaps));
 
 	for (i = 0; i < tr.numCubemaps; i++)
@@ -2548,11 +2548,29 @@ void R_LoadCubemapEntities(char *cubemapEntityName)
 	if (!numCubemaps)
 		return;
 
-	tr.numCubemaps = numCubemaps;
-	tr.cubemaps = ri.Hunk_Alloc(tr.numCubemaps * sizeof(*tr.cubemaps), h_low);
-	memset(tr.cubemaps, 0, tr.numCubemaps * sizeof(*tr.cubemaps));
+	if (tr.numCubemaps)
+	{
+		int newNumCubemaps = tr.numCubemaps + numCubemaps;
+		cubemap_t *newCubemaps = ri.Malloc(newNumCubemaps * sizeof(*newCubemaps));
+		int i;
 
-	numCubemaps = 0;
+		for (i = 0; i < tr.numCubemaps; i++)
+			newCubemaps[i] = tr.cubemaps[i];
+		
+		ri.Free(tr.cubemaps);
+		tr.cubemaps = newCubemaps;
+
+		numCubemaps = tr.numCubemaps;
+		tr.numCubemaps = newNumCubemaps;
+	}
+	else
+	{
+		tr.numCubemaps = numCubemaps;
+		tr.cubemaps = ri.Malloc(tr.numCubemaps * sizeof(*tr.cubemaps));
+		memset(tr.cubemaps, 0, tr.numCubemaps * sizeof(*tr.cubemaps));
+		numCubemaps = 0;
+	}
+
 	while(R_ParseSpawnVars(spawnVarChars, sizeof(spawnVarChars), &numSpawnVars, spawnVars))
 	{
 		int i;
@@ -2588,6 +2606,7 @@ void R_LoadCubemapEntities(char *cubemapEntityName)
 			Q_strncpyz(cubemap->name, name, sizeof(cubemap->name));
 			VectorCopy(origin, cubemap->origin);
 			cubemap->parallaxRadius = parallaxRadius;
+			ri.Printf(PRINT_ALL, "%f %f %f %f\n", cubemap->origin[0], cubemap->origin[1], cubemap->origin[2], parallaxRadius);
 			numCubemaps++;
 		}
 	}
@@ -2987,19 +3006,44 @@ void RE_LoadWorldMap( const char *name ) {
 		// Try loading an env.json file first
 		R_LoadEnvironmentJson(s_worldData.baseName);
 
-		if (!tr.numCubemaps)
+		// try loading default entities
+		if (*r_cubemapEntityName->string)
 		{
-			R_LoadCubemapEntities("misc_cubemap");
-		}
+			char ent_name[256], *in, *out;
+			in = r_cubemapEntityName->string;
 
-		if (!tr.numCubemaps)
-		{
-			// use deathmatch spawn points as cubemaps
-			R_LoadCubemapEntities("info_player_deathmatch");
+			out = ent_name;
+			while (1)
+			{
+				if (*in && *in != ' ')
+				{
+					if (out < &ent_name[255])
+						*out++ = *in;
+				}
+				else
+				{
+					*out++ = '\0';
+					R_LoadCubemapEntities(ent_name);
+					out = ent_name;
+				}
+
+				if (!*in)
+					break;
+				in++;
+			}
 		}
 
 		if (tr.numCubemaps)
 		{
+			cubemap_t *newCubemaps = ri.Hunk_Alloc(tr.numCubemaps * sizeof(*newCubemaps), h_low);
+			int i;
+
+			for (i = 0; i < tr.numCubemaps; i++)
+				newCubemaps[i] = tr.cubemaps[i];
+
+			ri.Free(tr.cubemaps);
+			tr.cubemaps = newCubemaps;
+
 			R_AssignCubemapsToWorldSurfaces();
 		}
 	}

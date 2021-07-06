@@ -493,12 +493,15 @@ int R_CubemapForPoint( vec3_t point )
 		for (i = 0; i < tr.numCubemaps; i++)
 		{
 			vec3_t diff;
-			vec_t length;
+			vec_t length, r;
+
+			r = tr.cubemaps[i].parallaxRadius;
+			r *= r;
 
 			VectorSubtract(point, tr.cubemaps[i].origin, diff);
 			length = DotProduct(diff, diff);
 
-			if (shortest > length)
+			if (shortest > length && length < r)
 			{
 				shortest = length;
 				cubemapIndex = i;
