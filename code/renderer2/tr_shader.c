@@ -2537,7 +2537,7 @@ static void CollapseStagesToLightall(shaderStage_t *diffuse,
 			imgFlags_t specularFlags = (diffuseImg->flags & ~IMGFLAG_GENNORMALMAP) | IMGFLAG_NOLIGHTSCALE;
 
 			COM_StripExtension(diffuseImg->imgName, specularName, MAX_QPATH);
-			Q_strcat(specularName, MAX_QPATH, "_s");
+			Q_strcat(specularName, MAX_QPATH, r_pbr->value ? "_rmo" : "_specgloss");
 
 			specularImg = R_FindImageFile(specularName, IMGTYPE_COLORALPHA, specularFlags);
 
