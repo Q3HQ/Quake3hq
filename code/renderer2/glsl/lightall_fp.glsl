@@ -222,7 +222,7 @@ float CalcLightAttenuation(float point, float normDist)
 }
 
 #if defined(USE_BOX_CUBEMAP_PARALLAX)
-vec4 hitCube(vec3 ray, vec3 pos, vec3 invSize, float lod, samplerCube tex)
+vec4 hitCube(vec3 ray, vec3 pos, float lod, samplerCube tex)
 {
 	// find any hits on cubemap faces facing the camera
 	vec3 scale = (sign(ray) - pos) / ray;
@@ -393,15 +393,19 @@ void main()
 	// diffuse rgb is base color
 	// specular red is gloss
 	// specular green is metallicness
+	// specular blue is ambient occlusion (masks cubemap reflections)
 	float gloss = specular.r;
 	float metal = specular.g;
+	float occlusion = specular.b;
 	specular.rgb = metal * diffuse.rgb + vec3(0.04 - 0.04 * metal);
 	diffuse.rgb *= 1.0 - metal;
   #else
 	// diffuse rgb is diffuse
 	// specular rgb is specular reflectance at normal incidence
 	// specular alpha is gloss
+	// estimate ambient occlusion from specular
 	float gloss = specular.a;
+	float occlusion = clamp((specular.r + specular.g + specular.b) * 20.0, 0.0, 1.0);
 
 	// adjust diffuse by specular reflectance, to maintain energy conservation
 	diffuse.rgb *= vec3(1.0) - specular.rgb;
@@ -431,7 +435,7 @@ void main()
 	gl_FragColor.rgb += ambientColor * diffuse.rgb;
 
   #if defined(USE_CUBEMAP)
-	reflectance = EnvironmentBRDF(roughness, NE, specular.rgb);
+	reflectance = EnvironmentBRDF(roughness, NE, specular.rgb) * occlusion;
 
 	vec3 R = reflect(E, N);
 
@@ -440,7 +444,7 @@ void main()
 	vec3 parallax = u_CubeMapInfo.xyz + u_CubeMapInfo.w * viewDir;
 
   #if defined(USE_BOX_CUBEMAP_PARALLAX)
-	vec3 cubeLightColor = hitCube(R * u_CubeMapInfo.w, parallax, u_CubeMapInfo.www, ROUGHNESS_MIPS * roughness, u_CubeMap).rgb * u_EnableTextures.w;
+	vec3 cubeLightColor = hitCube(R * u_CubeMapInfo.w, parallax, ROUGHNESS_MIPS * roughness, u_CubeMap).rgb * u_EnableTextures.w;
   #else
 	vec3 cubeLightColor = textureCubeLod(u_CubeMap, R + parallax, ROUGHNESS_MIPS * roughness).rgb * u_EnableTextures.w;
   #endif
