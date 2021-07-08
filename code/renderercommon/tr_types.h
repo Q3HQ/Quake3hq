@@ -215,7 +215,7 @@ typedef struct {
 #define	myftol(x) ((int)(x))
 
 #if defined(_WIN32)
-#define OPENGL_DRIVER_NAME	"opengl32"
+#define OPENGL_DRIVER_NAME	"opengl64"
 #elif defined(MACOS_X)
 #define OPENGL_DRIVER_NAME	"/System/Library/Frameworks/OpenGL.framework/Libraries/libGL.dylib"
 #else
