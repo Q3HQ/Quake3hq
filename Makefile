@@ -24,7 +24,7 @@ ifeq ($(COMPILE_PLATFORM),mingw32)
 endif
 
 BUILD_CLIENT     = 1
-BUILD_SERVER     = 1
+BUILD_SERVER     = 0
 
 USE_SDL          = 1
 USE_CURL         = 1
@@ -37,8 +37,8 @@ USE_VULKAN_API   = 1
 
 USE_RENDERER_DLOPEN = 1
 
-CNAME            = quake3e
-DNAME            = quake3e.ded
+CNAME            = quake3hq
+DNAME            = quake3hq.ded
 
 RENDERER_PREFIX  = $(CNAME)
 
