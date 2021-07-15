@@ -125,6 +125,7 @@ cvar_t  *r_parallaxMapOffset;
 cvar_t  *r_parallaxMapShadows;
 cvar_t  *r_cubeMapping;
 cvar_t  *r_cubemapSize;
+cvar_t  *r_cubemapEntityName;
 cvar_t  *r_deluxeSpecular;
 cvar_t  *r_pbr;
 cvar_t  *r_baseNormalX;
@@ -1164,6 +1165,7 @@ void R_Register( void )
 	r_parallaxMapShadows = ri.Cvar_Get( "r_parallaxMapShadows", "0", CVAR_ARCHIVE | CVAR_LATCH );
 	r_cubeMapping = ri.Cvar_Get( "r_cubeMapping", "0", CVAR_ARCHIVE | CVAR_LATCH );
 	r_cubemapSize = ri.Cvar_Get( "r_cubemapSize", "128", CVAR_ARCHIVE | CVAR_LATCH );
+	r_cubemapEntityName = ri.Cvar_Get( "r_cubemapEntityName", "misc_cubemap target_location item_armor_shard item_armor_combat item_armor_body item_health_small item_health item_health_large item_health_mega weapon_gauntlet weapon_shotgun weapon_machinegun weapon_grenadelauncher weapon_rocketlauncher weapon_lightning weapon_railgun weapon_plasmagun weapon_bfg weapon_grapplinghook ammo_shells ammo_bullets ammo_grenades ammo_cells ammo_lightning ammo_rockets ammo_slugs ammo_bfg holdable_teleporter holdable_medkit item_quad item_enviro item_haste item_invis item_regen item_flight team_CTF_redflag team_CTF_blueflag holdable_kamikaze holdable_portal holdable_invulnerability ammo_nails ammo_mines ammo_belt item_scout item_guard item_doubler item_ammoregen team_CTF_neutralflag item_redcube item_bluecube weapon_nailgun weapon_prox_launcher weapon_chaingun item_armor_green item_armor_jacket", CVAR_ARCHIVE | CVAR_LATCH );
 	r_deluxeSpecular = ri.Cvar_Get("r_deluxeSpecular", "0.3", CVAR_ARCHIVE | CVAR_LATCH);
 	r_pbr = ri.Cvar_Get("r_pbr", "0", CVAR_ARCHIVE | CVAR_LATCH);
 	r_baseNormalX = ri.Cvar_Get( "r_baseNormalX", "1.0", CVAR_ARCHIVE | CVAR_LATCH );
