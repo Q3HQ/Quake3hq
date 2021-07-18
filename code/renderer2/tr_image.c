@@ -2438,11 +2438,19 @@ image_t	*R_FindImageFile( const char *name, imgType_t type, imgFlags_t flags )
 
 		normalFlags = (flags & ~IMGFLAG_GENNORMALMAP) | IMGFLAG_NOLIGHTSCALE;
 
-		COM_StripExtension(name, normalName, MAX_QPATH);
-		Q_strcat(normalName, MAX_QPATH, "_n");
-
 		// find normalmap in case it's there
-		normalImage = R_FindImageFile(normalName, IMGTYPE_NORMAL, normalFlags);
+		COM_StripExtension(name, normalName, MAX_QPATH);
+		Q_strcat(normalName, MAX_QPATH, "_nh");
+
+		normalImage = R_FindImageFile(normalName, IMGTYPE_NORMALHEIGHT, normalFlags);
+
+		if (normalImage == NULL)
+		{
+			COM_StripExtension(name, normalName, MAX_QPATH);
+			Q_strcat(normalName, MAX_QPATH, "_n");
+
+			normalImage = R_FindImageFile(normalName, IMGTYPE_NORMAL, normalFlags);
+		}
 
 		// if not, generate it
 		if (normalImage == NULL)
@@ -2454,79 +2462,6 @@ image_t	*R_FindImageFile( const char *name, imgType_t type, imgFlags_t flags )
 			normalHeight = height;
 			normalPic = ri.Malloc(width * height * 4);
 			RGBAtoNormal(pic, normalPic, width, height, flags & IMGFLAG_CLAMPTOEDGE);
-
-#if 1
-			// Brighten up the original image to work with the normal map
-			RGBAtoYCoCgA(pic, pic, width, height);
-			for (y = 0; y < height; y++)
-			{
-				byte *picbyte  = pic       + y * width * 4;
-				byte *normbyte = normalPic + y * width * 4;
-				for (x = 0; x < width; x++)
-				{
-					int div = MAX(normbyte[2] - 127, 16);
-					picbyte[0] = CLAMP(picbyte[0] * 128 / div, 0, 255);
-					picbyte  += 4;
-					normbyte += 4;
-				}
-			}
-			YCoCgAtoRGBA(pic, pic, width, height);
-#else
-			// Blur original image's luma to work with the normal map
-			{
-				byte *blurPic;
-
-				RGBAtoYCoCgA(pic, pic, width, height);
-				blurPic = ri.Malloc(width * height);
-
-				for (y = 1; y < height - 1; y++)
-				{
-					byte *picbyte  = pic     + y * width * 4;
-					byte *blurbyte = blurPic + y * width;
-
-					picbyte += 4;
-					blurbyte += 1;
-
-					for (x = 1; x < width - 1; x++)
-					{
-						int result;
-
-						result = *(picbyte - (width + 1) * 4) + *(picbyte - width * 4) + *(picbyte - (width - 1) * 4) +
-						         *(picbyte -          1  * 4) + *(picbyte            ) + *(picbyte +          1  * 4) +
-						         *(picbyte + (width - 1) * 4) + *(picbyte + width * 4) + *(picbyte + (width + 1) * 4);
-
-						result /= 9;
-
-						*blurbyte = result;
-						picbyte += 4;
-						blurbyte += 1;
-					}
-				}
-
-				// FIXME: do borders
-
-				for (y = 1; y < height - 1; y++)
-				{
-					byte *picbyte  = pic     + y * width * 4;
-					byte *blurbyte = blurPic + y * width;
-
-					picbyte += 4;
-					blurbyte += 1;
-
-					for (x = 1; x < width - 1; x++)
-					{
-						picbyte[0] = *blurbyte;
-						picbyte += 4;
-						blurbyte += 1;
-					}
-				}
-
-				ri.Free(blurPic);
-
-				YCoCgAtoRGBA(pic, pic, width, height);
-			}
-#endif
-
 			R_CreateImage( normalName, normalPic, normalWidth, normalHeight, IMGTYPE_NORMAL, normalFlags, 0 );
 			ri.Free( normalPic );	
 		}
